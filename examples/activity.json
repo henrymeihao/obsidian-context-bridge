@@ -1,0 +1,18 @@
+{
+  "event_id": "demo_activity_001",
+  "project": "demo-project",
+  "project_name": "虚构天气卡片",
+  "task_id": "card-layout",
+  "task_name": "制作天气卡片布局",
+  "agent": "Demo Codex",
+  "session_ref": "synthetic-demo-session",
+  "occurred_at": "2026-01-02T10:00:00+08:00",
+  "kind": "progress",
+  "evidence": "observed_action",
+  "status": "in_progress",
+  "summary": "虚构演示：已制作本地布局，尚未部署。",
+  "details": "此数据完全虚构，用来演示跨 Agent 接续。",
+  "next_step": "检查小屏幕显示。",
+  "artifacts": ["demo/layout.html"],
+  "sources": ["虚构演示中的本地预览记录"]
+}

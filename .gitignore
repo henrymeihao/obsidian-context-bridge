@@ -10,3 +10,4 @@ secrets*
 *.db
 *.sql.tmp
 .DS_Store
+work/

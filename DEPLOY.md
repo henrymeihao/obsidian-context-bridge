@@ -63,7 +63,9 @@ npm run deploy
 
 点击连接，在你自己的 Worker 授权页核对客户端、回调地址和请求权限，输入管理员密钥原文。不要填坚果云密码或密钥哈希。界面名称可能随客户端版本不同。
 
-默认必需权限是 `context:read`。如需饮食追加，客户端还需申请 `context:append:diet` 并重新取得授权；支持手填 scope 的客户端可填写 `context:read context:append:diet`。服务端展示了追加工具不等于当前令牌已经拥有追加权限。
+默认必需权限是 `context:read`。Activity 写入另需 `context:write:activity`，饮食追加另需 `context:append:diet`。支持手填 scope 的客户端，Activity 使用 `context:read context:write:activity`；两类写入都需要时申请全部三项。旧授权需重新连接并核对授权页。服务端展示了工具不代表当前令牌有写入权限。
+
+Activity 仅在 `ACCESS_MODE=vault` 下提供；每个客户端分别授权。连接成功后，按 [Skills 安装说明](skills/README.md)安装读写规则，并明确授权例行活动写回。
 
 ## 5. 用一篇笔记验收
 
@@ -73,8 +75,34 @@ npm run deploy
 2. 在电脑上修改内容，等坚果云同步，再读取一次，确认看到新内容。
 3. 等待后台增量索引，查询索引状态，再搜索刚才的关键词。首次扫描可能需要多轮，不是部署后立即有全部搜索结果。
 4. 需要测试追加时，先在根目录创建 `饮食记录.md` 并同步，再取得追加权限，明确要求记录一条测试饮食。检查原有内容保留、记录只追加一次，并在另一端确认同步。
+5. 按 [双 Agent 验收](docs/demo.md)写一条虚构 Activity，检查 `vault_synced=true`，在第二个客户端读取。原 payload 原 ID 重试不得重复写入；改变内容但复用 ID 应拒绝。检查不带活动 scope 的令牌不能写入。
 
 确认后若需修改 `WEBDAV_ROOT`，请为新范围创建独立 D1 数据库、更新绑定，并重新执行表结构初始化和 `init-index.mjs`，然后部署。根目录不一致时服务会拒绝使用旧索引，不会自动切换。旧数据库仍可能保存原范围的正文，确认不再需要后应自行删除。
+
+## 从基础版升级
+
+先按自己的备份流程导出 D1，并备份已有 `Agent共享/`；保留当前 Secrets、KV、D1 绑定和根目录，不复制作者配置。停止客户端写入后执行增量迁移：
+
+```sh
+npx wrangler d1 execute obsidian-context-search --remote --file migrations/0001_shared_activity.sql --yes
+npm run deploy
+```
+
+迁移只有 `CREATE TABLE/INDEX IF NOT EXISTS`，可重复执行；不要清空 notes、index_meta 或 OAuth 存储。新安装使用完整 `schema.sql`，不必再跑增量迁移。升级不会给旧令牌新增 scope，需要客户端重新授权。代码回退到基础版时保留新增活动表和 Markdown，旧代码不消费它们；恢复前先核对备份，不用 DROP TABLE 充当回退步骤。
+
+## 隔离本地检查
+
+使用独立的测试配置及本地存储，禁止复制生产 Secrets：
+
+```sh
+npm run check
+npm test
+node scripts/privacy-scan.mjs --history
+npm audit
+npx wrangler deploy --config wrangler.example.jsonc --dry-run --outdir dist
+```
+
+dry-run 只验证打包和绑定声明，不创建云端资源，也不证明 WebDAV/OAuth/真实客户端正常。全新第三方 Cloudflare + 坚果云账号的端到端部署仍待验证。
 
 ## 常见问题
 
@@ -83,5 +111,8 @@ npm run deploy
 - **只有旧工具：** 在客户端刷新工具列表；新增 scope 还需重新授权。
 - **搜索没有最新内容：** 看 `context_index_status`，或先用 `read_context` 实时读取。
 - **追加权限不足：** 检查授权中是否包含 `context:append:diet`；不能通过关闭认证绕过。
+- **Activity 写入失败：** 检查 `context:write:activity`、vault 模式及迁移是否执行。
+- **pending_vault_sync：** D1 已保存，Obsidian 尚未验证。检查 WebDAV 和 cron；只用相同 ID 和 payload 重试。不要改写冲突原文件。
+- **views_updated=false：** 原事件可已成功同步，但生成视图稍后刷新；用活动 API 读取，不依赖全文索引。
 
 更换管理员密钥可重新生成并更新 `OWNER_KEY_SHA256`，但不会自动撤销已经签发的 OAuth 令牌。需停止旧访问时，应同时撤销连接或清理该服务专用 OAuth 存储；停用服务后也可撤销坚果云应用密码。

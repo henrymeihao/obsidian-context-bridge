@@ -14,7 +14,7 @@
     "@modelcontextprotocol/sdk": "1.32.2",
     "fast-xml-parser": "^5.12.0",
     "re2js": "^2.10.0",
-    "zod": "^3.25.0"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",
