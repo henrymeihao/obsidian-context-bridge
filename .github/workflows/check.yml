@@ -1,0 +1,23 @@
+name: Check
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run check
+      - run: npm test
+      - run: node scripts/privacy-scan.mjs --history
+      - run: npm audit --audit-level=high
+      - run: npx wrangler deploy --config wrangler.example.jsonc --dry-run --outdir dist

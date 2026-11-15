@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { randomBytes, createHash } from 'node:crypto';
+import { fixture } from './activity-fixture.ts';
 registerHooks({
  resolve(s,c,next) { return s === 'cloudflare:workers' ? {url:s,shortCircuit:true} : next(s,c); },
  load(u,c,next) { return u === 'cloudflare:workers' ? {format:'module',source:'export class WorkerEntrypoint {}',shortCircuit:true} : next(u,c); }
@@ -74,5 +75,33 @@ test('fresh OAuth + PKCE + MCP read, scoped append and idempotent retry', async 
   const writer=await authorize('context:read context:append:diet');
   for(let i=0;i<2;i++) { const result=await rpc(writer,'tools/call',{name:'append_diet_record',arguments:args});assert.ok(!result.result.isError,JSON.stringify(result)); }
   assert.equal(puts,1);assert.ok(diet.includes('Synthetic meal'));
+  // Reuse real SQLite + conditional synthetic WebDAV behind the OAuth/MCP boundary.
+  const activity=fixture();
+  Object.assign(env,activity.env);
+  globalThis.fetch=activity.fetcher;
+  const event={event_id:'oauth_activity_001',project:'demo-project',project_name:'Demo',task_id:'demo-task',task_name:'Demo task',agent:'Fixture',session_ref:'synthetic-session',occurred_at:new Date(Date.now()-60000).toISOString(),kind:'progress',evidence:'observed_action',status:'in_progress',summary:'Synthetic progress',sources:['Synthetic test']};
+  for(const denied of [token,writer]) {
+   const result=await rpc(denied,'tools/call',{name:'append_activity',arguments:event});
+   assert.equal(result.result.isError,true);
+   assert.ok(result.result._meta['mcp/www_authenticate'][0].includes('context:write:activity'));
+  }
+  assert.equal(activity.sql.prepare('SELECT COUNT(*) AS n FROM shared_activity').get().n,0);
+  assert.equal(activity.puts,0);
+  const activityWriter=await authorize('context:read context:write:activity');
+  for(let i=0;i<2;i++) {
+   const result=await rpc(activityWriter,'tools/call',{name:'append_activity',arguments:event});
+   assert.ok(!result.result.isError,JSON.stringify(result));
+   assert.equal(JSON.parse(result.result.content[0].text).vault_synced,true);
+  }
+  assert.equal(activity.sql.prepare('SELECT COUNT(*) AS n FROM shared_activity').get().n,1);
+  const context=await rpc(token,'tools/call',{name:'get_activity_context',arguments:{project:event.project}});
+  assert.equal(JSON.parse(context.result.content[0].text).activities[0].event_id,event.event_id);
+  assert.equal((await rpc(activityWriter,'tools/call',{name:'append_diet_record',arguments:args})).result.isError,true);
+  const changed=await rpc(activityWriter,'tools/call',{name:'append_activity',arguments:{...event,summary:'Changed content'}});
+  assert.equal(changed.result.isError,true);
+  const invalid=await rpc(activityWriter,'tools/call',{name:'append_activity',arguments:{...event,event_id:'oauth_invalid_001',evidence:'assistant_proposal',status:'completed'}});
+  assert.equal(invalid.result.isError,true);
+  assert.equal(activity.sql.prepare('SELECT COUNT(*) AS n FROM shared_activity').get().n,1);
+  activity.sql.close();
  } finally {globalThis.fetch=originalFetch;}
 });
