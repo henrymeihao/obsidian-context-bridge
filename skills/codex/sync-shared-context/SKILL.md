@@ -1,6 +1,6 @@
 ---
 name: sync-shared-context
-description: Use Obsidian Context Bridge to read and record cross-agent project activity, meaningful outcomes, blockers and corrections. Use when starting or resuming substantive work or answering recent-progress questions; skip greetings and unchanged status.
+description: Use Obsidian Context Bridge to read and record cross-agent project activity, meaningful outcomes, blockers and corrections. Use for ongoing project work, explicit decisions, verified deliverables, status changes, blockers, corrections, and recent-progress questions; record material changes promptly, skip unchanged status.
 ---
 
 # Shared activity
@@ -15,9 +15,38 @@ For complete activity lists, follow `next_cursor` with unchanged filters and lim
 
 ## Record
 
-After a meaningful conclusion, user decision, actual progress/deliverable, blocker or correction, call `append_activity` before the final reply. Record useful intermediate milestones in long tasks. Skip greetings, duplicate summaries and unchanged status. Do not automatically import raw chats or native memories.
+Evaluate recording after each project-related user decision, observed tool result, or stable discussion milestone. **Do not wait for session end.** The trigger is a material change in shared state, not the length of the conversation or a subjective feeling that it was "meaningful".
 
-Reuse stable `project` and `task_id`; generate a unique `event_id` once and preserve the complete payload. Include actual `occurred_at` with timezone, `agent`, an available `session_ref`, concise summary, real sources and relevant artifacts/next step. Never invent links or include credentials, raw private documents or unrelated sensitive details.
+### P0 — mandatory, event-driven
+
+Call `append_activity` before the next final reply whenever an authorized, evidence-backed event occurs:
+
+- The user explicitly makes, changes, rejects, pauses or cancels a project decision.
+- A deliverable is actually created, revised, committed, merged, published or deployed; record the **verified** stage, never infer deployment from a commit.
+- A task or project changes state, owner, scope or next action in a way another agent needs to know.
+- A blocker is discovered, materially changes or is resolved.
+- A previously recorded claim is materially corrected.
+
+Record verified P0 milestones as they occur, including during long sessions. A user reporting work done elsewhere is `user_statement`, not `observed_action` unless independently verified.
+
+### P1 — conditional, reusable conclusion
+
+Record a discussion only when **all three** are true:
+1. It reaches a concrete conclusion or actionable method that another agent could reuse.
+2. It adds a material delta compared with the latest activity for the same project/task.
+3. Its provenance is clear: explicit user decision, observed action, assistant proposal, or inference.
+
+Unaccepted suggestions remain `assistant_proposal` with `discussed` or `planned`; never promote them to decisions or completed work.
+
+### P2 — skip
+
+Skip greetings, general questions, early brainstorming, unchanged status checks, repeated summaries, and raw conversation transcripts. A read-only lookup does not itself justify a write. Do not automatically import native memories.
+
+### Deduplication and cadence
+
+Use recent `get_activity_context(project=...)` results to compare the latest explicit state for the same stable task. Write the **new event or material delta**, not the entire project history. Do not use an arbitrary message-count or time-based threshold. For long sessions, write each distinct P0 transition promptly and write P1 only at stable milestones. If there is no new qualifying event, do not write.
+
+Reuse stable `project` and `task_id`; generate a unique `event_id` once and preserve the complete payload for retries. Include actual `occurred_at` with timezone, `agent`, an available `session_ref`, concise summary, real sources and relevant artifacts/next step. Never invent links or include credentials, raw private documents or unrelated sensitive details.
 
 - `user_statement`: an explicit user statement or decision; silence is not acceptance.
 - `observed_action`: performed and observed work. Distinguish code written, tests passed, deployed and live verified.
