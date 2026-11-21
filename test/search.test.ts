@@ -120,7 +120,7 @@ test('cloud refresh reindexes changed text and preserves old records when listin
 test('poison item is deferred with safe diagnostics; healthy work checkpoints and resumes',async()=>{
   const {env,sqlite}=fixture([{path:'keep.md',text:'preserved'}]);
   const entry=(path:string)=>({path,type:'note',bytes:5,lastModified:null});
-  const state={generation:'test-generation',queue:[],pending:[entry('bad.md'),entry('good.md')],complete:false,skipped:[]};
+  const state={generation:new Date().toISOString(),pruneSafe:true,queue:[],pending:[entry('bad.md'),entry('good.md')],complete:false,skipped:[]};
   sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify(state));
   let badCalls=0,goodCalls=0;
   const fetcher=(async(url:any)=>{
@@ -166,8 +166,34 @@ test('deleted queued non-root directory does not stall remaining scan; root 404 
 
 test('request-budget yield checkpoints notes and next invocation avoids re-fetching completed work',async()=>{
   const {env,sqlite}=fixture([]);
-  sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify({generation:'fixture',queue:[],pending:Array.from({length:12},(_,i)=>({path:`note-${i}.md`,type:'note',bytes:5,lastModified:null})),complete:false,skipped:[]}));
+  sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify({generation:new Date().toISOString(),pruneSafe:true,queue:[],pending:Array.from({length:12},(_,i)=>({path:`note-${i}.md`,type:'note',bytes:5,lastModified:null})),complete:false,skipped:[]}));
   const seen=new Set<string>();const fetcher=(async(url:any)=>{assert.ok(!seen.has(String(url)));seen.add(String(url));return new Response('hello');}) as typeof fetch;
   await syncIndex(env,fetcher);assert.equal(seen.size,10);assert.equal((await indexStatus(env) as any).sync.pending.length,2);
   await syncIndex(env,fetcher);assert.equal(seen.size,12);assert.equal((await indexStatus(env) as any).sync.complete,true);
+});
+
+test('stale or untrusted scan cannot prune until a new complete root traversal',async()=>{
+  for(const saved of [
+    {generation:new Date(Date.now()-7*86400000).toISOString(),pruneSafe:true},
+    {generation:new Date().toISOString()},
+    {generation:'invalid',pruneSafe:true},
+    {generation:new Date(Date.now()+86400000).toISOString(),pruneSafe:true},
+  ]) {
+    const {env,sqlite}=fixture([{path:'keep.md',text:'preserved'},{path:'gone.md',text:'old'}]);
+    const previous='2026-01-01T00:00:00Z';
+    sqlite.prepare("INSERT INTO index_meta VALUES('last_full_scan_at',?)").run(previous);
+    sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify({...saved,queue:Array.from({length:33},(_,i)=>({path:`removed-${i}`,offset:0})),pending:[],complete:false,skipped:[]}));
+    for(let i=0;i<4;i++)await syncIndex(env,async()=>new Response(null,{status:404}));
+    const restarted=await indexStatus(env) as any;
+    assert.equal(restarted.notes,2,'old progress is not proof that unseen files were deleted');
+    assert.equal(restarted.lastFullScanAt,previous,'discarded traversal cannot claim freshness');
+    assert.equal(restarted.sync.complete,false);
+    assert.deepEqual(restarted.sync.queue,[{path:'',offset:0}]);
+    assert.equal(restarted.sync.rescanReason,'expired_or_untrusted_generation');
+    await syncIndex(env,async()=>new Response('<multistatus xmlns="DAV:"><response><href>/dav/obsidian/keep.md</href><propstat><status>HTTP/1.1 200 OK</status><prop><resourcetype/><getetag>etag-test</getetag><getcontentlength>9</getcontentlength></prop></propstat></response></multistatus>',{status:207}));
+    const fresh=await indexStatus(env) as any;
+    assert.equal(fresh.sync.complete,true);assert.notEqual(fresh.lastFullScanAt,previous);
+    assert.equal(sqlite.prepare("SELECT content FROM notes WHERE path='keep.md'").get()!.content,'preserved');
+    assert.equal(sqlite.prepare("SELECT path FROM notes WHERE path='gone.md'").get(),undefined);
+  }
 });

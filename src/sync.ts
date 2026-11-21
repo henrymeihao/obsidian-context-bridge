@@ -7,6 +7,13 @@ interface SyncState {
  deferred?: { path: string; offset: number; entry?: Entry }[];
  checkpointAt?: string; lastProgressAt?: string;
  retiredDirectories?: number;
+ // Only a traversal started at the root by this implementation may prune.
+ pruneSafe?: boolean; rescanReason?: string;
+}
+const MAX_SCAN_AGE_MS = 24 * 60 * 60 * 1000;
+function freshScan(previous?: SyncState): SyncState {
+  return {generation:new Date().toISOString(),queue:[{path:'',offset:0}],pending:[],complete:false,skipped:[],pruneSafe:true,
+    ...(previous?{rescanReason:'expired_or_untrusted_generation',retiredDirectories:previous.retiredDirectories,lastProgressAt:previous.lastProgressAt}:{})};
 }
 const isoTime = (value:string|null|undefined) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
 export function syncErrorCode(error: unknown): string {
@@ -42,7 +49,7 @@ async function runSync(env: SearchEnv, fetcher: typeof fetch) {
   let state: SyncState = saved ? JSON.parse(saved) : { generation: '', queue: [], pending: [], complete: true, skipped: [] };
   if (state.complete) {
     if (state.nextScanAfter && Date.now() < state.nextScanAfter) return;
-    state = { generation: new Date().toISOString(), queue: [{ path: '', offset: 0 }], pending: [], complete: false, skipped: [] };
+    state = freshScan();
   }
   let requests = 0;
   state.retries ??= {}; state.deferred ??= [];
@@ -132,10 +139,18 @@ async function runSync(env: SearchEnv, fetcher: typeof fetch) {
     }
     if (!state.deferred.length) delete state.lastError;
     if (!state.queue.length && !state.pending.length && !state.deferred.length) {
-      state.complete = true;
-      state.nextScanAfter = Date.now() + 2 * 60000;
-      if (!state.skipped.includes('[directory listing may be truncated]')) await db.prepare('DELETE FROM notes WHERE seen_generation<>?').bind(state.generation).run();
-      await db.prepare("INSERT OR REPLACE INTO index_meta(key,value) VALUES('last_full_scan_at',?)").bind(new Date().toISOString()).run();
+      const age = Date.now() - Date.parse(state.generation);
+      if (!state.pruneSafe || !Number.isFinite(age) || age < 0 || age > MAX_SCAN_AGE_MS) {
+        // Preserve indexed content and completed updates from an old/interrupted scan.
+        // Queue a new root traversal for the next invocation; never loop here or
+        // advance last_full_scan_at using stale directory evidence.
+        state = freshScan(state);
+      } else {
+        if (!state.skipped.includes('[directory listing may be truncated]')) await db.prepare('DELETE FROM notes WHERE seen_generation<>?').bind(state.generation).run();
+        await db.prepare("INSERT OR REPLACE INTO index_meta(key,value) VALUES('last_full_scan_at',?)").bind(new Date().toISOString()).run();
+        state.complete = true;
+        state.nextScanAfter = Date.now() + 2 * 60000;
+      }
     }
   } catch (error) {
     // Retain the work item and retry later. Do not persist credentials or upstream response bodies.
