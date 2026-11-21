@@ -1,0 +1,576 @@
+{
+  "data": "entirely synthetic; no production personal facts",
+  "cases": [
+    {
+      "client_skill": "codex",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "decision",
+      "natural_input": "我已经决定，明年把职业方向从后端开发转到产品设计，先参加一个系统课程，再用小项目验证。这是我认真比较后确定的方向。你觉得我该留意哪些风险？",
+      "passed": true,
+      "memory_count": 1,
+      "activity_count": 0,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "职业方向转型，从后端开发转到产品设计，系统课程和小项目",
+            "types": [
+              "decision"
+            ],
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": []
+        },
+        {
+          "tool": "capture_memory",
+          "arguments": {
+            "memory_id": "career-transition-product-design-2026-11-21",
+            "topic": "career-transition",
+            "type": "decision",
+            "summary": "经过认真比较，用户决定于2027年将职业方向从后端开发转向产品设计，先参加系统课程，再通过小项目验证。",
+            "context": "",
+            "agent": "codex",
+            "session_ref": "fixture:current-session",
+            "source_refs": [
+              "fixture:current-session:user-career-decision"
+            ],
+            "evidence": "user_statement",
+            "stance": "confirmed",
+            "occurred_at": "2026-11-21T15:33:34.504Z",
+            "valid_from": "2026-11-21T15:33:34.504Z",
+            "sensitivity": "normal",
+            "authorization_ref": "fixture:owner-authorization"
+          },
+          "error": null,
+          "write_result": {
+            "memory_id": "career-transition-product-design-2026-11-21",
+            "vault_synced": true,
+            "status": "recorded",
+            "revision": 1
+          }
+        }
+      ]
+    },
+    {
+      "client_skill": "codex",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "exploration",
+      "natural_input": "我还在比较继续写代码和做产品设计，两边都没想清楚，也没有得出新的结论。今天先帮我列出各自要考虑的因素，不要替我下决定。",
+      "passed": true,
+      "memory_count": 0,
+      "activity_count": 0,
+      "tools": []
+    },
+    {
+      "client_skill": "codex",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "duplicate",
+      "natural_input": "我还是和以前一样，长期偏好先给简短结论，再按需展开细节。这点没有变化。你觉得这样沟通有什么取舍？",
+      "passed": true,
+      "memory_count": 1,
+      "activity_count": 0,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "长期沟通偏好：先给简短结论，再按需展开细节",
+            "types": [
+              "preference"
+            ],
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": [
+            {
+              "id": "fixture_existing_pref",
+              "path": "Agent共享/个人记忆/事件/fixture_existing_pref.md",
+              "startLine": 19,
+              "evidence": "user_statement"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "client_skill": "codex",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "project",
+      "natural_input": "atlas-demo 项目的分页接口已完成本地开发，12项测试通过，但尚未部署。请根据这个进展说一下下一步该检查什么。",
+      "passed": true,
+      "memory_count": 0,
+      "activity_count": 1,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "get_activity_context",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "get_activity_context",
+          "arguments": {
+            "project": "atlas-demo"
+          },
+          "error": null
+        },
+        {
+          "tool": "append_activity",
+          "arguments": {
+            "event_id": "atlas-demo-pagination-local-20261121-153636",
+            "project": "atlas-demo",
+            "project_name": "atlas-demo",
+            "task_id": "pagination-api",
+            "task_name": "分页接口交付",
+            "agent": "codex",
+            "session_ref": "current-conversation",
+            "occurred_at": "2026-11-21T23:36:33+08:00",
+            "kind": "progress",
+            "evidence": "user_statement",
+            "status": "in_progress",
+            "summary": "分页接口已完成本地开发，12 项本地测试通过，尚未部署。",
+            "details": "",
+            "artifacts": [],
+            "sources": [
+              "current-conversation:user:atlas-demo-pagination-progress"
+            ]
+          },
+          "error": null,
+          "write_result": {
+            "event_id": "atlas-demo-pagination-local-20261121-153636",
+            "vault_synced": true,
+            "status": "recorded"
+          }
+        }
+      ]
+    },
+    {
+      "client_skill": "codex",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "insight",
+      "natural_input": "经过刚才的比较，我现在对 AI 辅助判断形成了一个结论：它适合帮我展开候选和找反例，但最终的价值取舍仍应由我来承担。以后评估 AI 的作用时，我会用这个区分。你觉得这个结论还有什么边界？",
+      "passed": true,
+      "memory_count": 1,
+      "activity_count": 0,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "AI 辅助判断 展开候选 找反例 最终价值取舍由自己承担",
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": []
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "AI",
+            "types": [
+              "exploration",
+              "decision",
+              "preference"
+            ],
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": []
+        },
+        {
+          "tool": "capture_memory",
+          "arguments": {
+            "memory_id": "ai-assisted-judgment-20261121-154000",
+            "topic": "ai-assisted-judgment",
+            "type": "exploration",
+            "summary": "用户评估 AI 辅助判断时，会区分候选与反例的探索和最终的价值取舍。AI 适合帮助展开候选、寻找反例，最终价值取舍由用户本人承担。",
+            "context": "",
+            "agent": "codex",
+            "session_ref": "current-conversation",
+            "source_refs": [
+              "current-conversation:user:ai-assisted-judgment"
+            ],
+            "evidence": "user_statement",
+            "stance": "confirmed",
+            "occurred_at": "2026-11-21T15:39:56Z",
+            "valid_from": "2026-11-21T15:39:56Z",
+            "sensitivity": "normal",
+            "authorization_ref": "fixture:owner-authorization"
+          },
+          "error": null,
+          "write_result": {
+            "memory_id": "ai-assisted-judgment-20261121-154000",
+            "vault_synced": true,
+            "status": "recorded",
+            "revision": 1
+          }
+        }
+      ]
+    },
+    {
+      "client_skill": "codex",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "paraphrase",
+      "natural_input": "我们之前关于让机器列选项、人来做价值取舍的结论是什么？请核对原始依据；找不到就说不知道。",
+      "passed": true,
+      "memory_count": 1,
+      "activity_count": 0,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "让机器列选项、人来做价值取舍",
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": []
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "AI propose options humans make value judgments",
+            "mode": "timeline",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": [
+            {
+              "id": "fixture_ai_language",
+              "path": "Agent共享/个人记忆/事件/fixture_ai_language.md",
+              "startLine": 19,
+              "evidence": "user_statement"
+            }
+          ]
+        },
+        {
+          "tool": "read_context",
+          "arguments": {
+            "path": "Agent共享/个人记忆/事件/fixture_ai_language.md"
+          },
+          "error": null,
+          "read_path": "Agent共享/个人记忆/事件/fixture_ai_language.md"
+        }
+      ]
+    },
+    {
+      "client_skill": "chatgpt",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "decision",
+      "natural_input": "我已经决定，明年把职业方向从后端开发转到产品设计，先参加一个系统课程，再用小项目验证。这是我认真比较后确定的方向。你觉得我该留意哪些风险？",
+      "passed": true,
+      "memory_count": 1,
+      "activity_count": 0,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "职业转型 职业方向 后端开发 产品设计",
+            "types": [
+              "decision"
+            ],
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": []
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "职业转型",
+            "topics": [
+              "career-transition"
+            ],
+            "types": [
+              "decision"
+            ],
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": []
+        },
+        {
+          "tool": "capture_memory",
+          "arguments": {
+            "memory_id": "career-transition-2026-11-21",
+            "topic": "career-transition",
+            "type": "decision",
+            "summary": "已决定于 2027 年将职业方向从后端开发转向产品设计，先参加系统课程，再用小项目验证。",
+            "context": "",
+            "agent": "Codex",
+            "session_ref": "current-conversation",
+            "source_refs": [
+              "current-conversation:user:career-transition-decision"
+            ],
+            "evidence": "user_statement",
+            "stance": "confirmed",
+            "occurred_at": "2026-11-21T23:37:40+08:00",
+            "valid_from": "2026-11-21T23:37:40+08:00",
+            "sensitivity": "normal",
+            "authorization_ref": "fixture:owner-authorization"
+          },
+          "error": null,
+          "write_result": {
+            "memory_id": "career-transition-2026-11-21",
+            "vault_synced": true,
+            "status": "recorded",
+            "revision": 1
+          }
+        }
+      ]
+    },
+    {
+      "client_skill": "chatgpt",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "exploration",
+      "natural_input": "我还在比较继续写代码和做产品设计，两边都没想清楚，也没有得出新的结论。今天先帮我列出各自要考虑的因素，不要替我下决定。",
+      "passed": true,
+      "memory_count": 0,
+      "activity_count": 0,
+      "tools": []
+    },
+    {
+      "client_skill": "chatgpt",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "duplicate",
+      "natural_input": "我还是和以前一样，长期偏好先给简短结论，再按需展开细节。这点没有变化。你觉得这样沟通有什么取舍？",
+      "passed": true,
+      "memory_count": 1,
+      "activity_count": 0,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "长期沟通偏好 先给简短结论 再按需展开细节",
+            "types": [
+              "preference"
+            ],
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": [
+            {
+              "id": "fixture_existing_pref",
+              "path": "Agent共享/个人记忆/事件/fixture_existing_pref.md",
+              "startLine": 19,
+              "evidence": "user_statement"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "client_skill": "chatgpt",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "project",
+      "natural_input": "atlas-demo 项目的分页接口已完成本地开发，12项测试通过，但尚未部署。请根据这个进展说一下下一步该检查什么。",
+      "passed": true,
+      "memory_count": 0,
+      "activity_count": 1,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "get_activity_context",
+          "arguments": {
+            "project": "atlas-demo"
+          },
+          "error": null
+        },
+        {
+          "tool": "append_activity",
+          "arguments": {
+            "event_id": "atlas-demo-pagination-local-20261121-1795275456359",
+            "project": "atlas-demo",
+            "project_name": "atlas-demo",
+            "task_id": "pagination-api",
+            "task_name": "分页接口",
+            "agent": "Codex",
+            "session_ref": "current-conversation",
+            "occurred_at": "2026-11-21T15:37:36.362Z",
+            "kind": "progress",
+            "evidence": "user_statement",
+            "status": "in_progress",
+            "summary": "分页接口已完成本地开发，12 项测试通过，尚未部署。",
+            "details": "",
+            "artifacts": [],
+            "sources": [
+              "current-conversation:user-reported-pagination-progress",
+              "fixture:owner-authorization"
+            ]
+          },
+          "error": null,
+          "write_result": {
+            "event_id": "atlas-demo-pagination-local-20261121-1795275456359",
+            "vault_synced": true,
+            "status": "recorded"
+          }
+        }
+      ]
+    },
+    {
+      "client_skill": "chatgpt",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "insight",
+      "natural_input": "经过刚才的比较，我现在对 AI 辅助判断形成了一个结论：它适合帮我展开候选和找反例，但最终的价值取舍仍应由我来承担。以后评估 AI 的作用时，我会用这个区分。你觉得这个结论还有什么边界？",
+      "passed": true,
+      "memory_count": 1,
+      "activity_count": 0,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "AI 辅助判断 展开候选 找反例 价值取舍",
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": []
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "AI 辅助判断",
+            "topics": [
+              "ai-assisted-judgment"
+            ],
+            "types": [
+              "exploration"
+            ],
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": []
+        },
+        {
+          "tool": "capture_memory",
+          "arguments": {
+            "memory_id": "ai-assisted-judgment-exploration-2026-11-21",
+            "topic": "ai-assisted-judgment",
+            "type": "exploration",
+            "summary": "用户认为 AI 适合扩展候选方案和寻找反例，最终的价值取舍由自己承担，并会用这一区分评估 AI 的作用。",
+            "context": "比较 AI 在辅助判断中的作用后形成的可复用评估原则。",
+            "agent": "Codex",
+            "session_ref": "current-conversation",
+            "source_refs": [
+              "current-conversation:user:ai-assisted-judgment"
+            ],
+            "evidence": "user_statement",
+            "stance": "confirmed",
+            "occurred_at": "2026-11-21T15:40:08.312Z",
+            "valid_from": "2026-11-21T15:40:08.312Z",
+            "sensitivity": "normal",
+            "authorization_ref": "fixture:owner-authorization"
+          },
+          "error": null,
+          "write_result": {
+            "memory_id": "ai-assisted-judgment-exploration-2026-11-21",
+            "vault_synced": true,
+            "status": "recorded",
+            "revision": 1
+          }
+        }
+      ]
+    },
+    {
+      "client_skill": "chatgpt",
+      "runtime": "Codex CLI against isolated SQLite/WebDAV fixture, not ChatGPT frontend",
+      "scenario": "paraphrase",
+      "natural_input": "我们之前关于让机器列选项、人来做价值取舍的结论是什么？请核对原始依据；找不到就说不知道。",
+      "passed": true,
+      "memory_count": 1,
+      "activity_count": 0,
+      "tools": [
+        {
+          "tool": "read_skill",
+          "arguments": {},
+          "error": null
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "机器列选项，人来做价值取舍",
+            "mode": "current",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": []
+        },
+        {
+          "tool": "recall_memory",
+          "arguments": {
+            "query": "AI generates options; humans make value trade-offs",
+            "mode": "timeline",
+            "limit": 10
+          },
+          "error": null,
+          "returned_sources": [
+            {
+              "id": "fixture_ai_language",
+              "path": "Agent共享/个人记忆/事件/fixture_ai_language.md",
+              "startLine": 19,
+              "evidence": "user_statement"
+            }
+          ]
+        },
+        {
+          "tool": "read_context",
+          "arguments": {
+            "path": "Agent共享/个人记忆/事件/fixture_ai_language.md"
+          },
+          "error": null,
+          "read_path": "Agent共享/个人记忆/事件/fixture_ai_language.md"
+        }
+      ]
+    }
+  ]
+}

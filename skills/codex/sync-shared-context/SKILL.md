@@ -1,12 +1,32 @@
 ---
 name: sync-shared-context
-description: Recall relevant personal history and capture authorized long-term personal conclusions through Obsidian Context Bridge, alongside existing cross-agent project activity. Use when past experiences, preferences, decisions or plans matter, for reusable personal conclusions and project resumption; skip unrelated Q&A and casual chat.
+description: Proactively capture authorized personal decisions, stable preferences, experiences, goals and reusable exploration conclusions; recall relevant history on demand. Route project progress to Activity and personal conclusions to Memory; skip questions, unresolved brainstorming and duplicates.
 ---
 
 # Shared activity
 
 Use the connected Obsidian Context Bridge tools. This skill does not establish a connection or grant permission. Routine writes require both the owner's explicit authorization for `Agent共享/` activity recording and an OAuth grant for `context:write:activity`. If authorization is absent, read or prepare a proposed record and request authorization before submitting it.
 
+
+## Route before recording
+
+Apply this routing before the Activity rules below. Classify each claim by what it says, not by whether the chat mentions a project or a tool:
+
+- Project progress, deliverables, implementation decisions and task status: `append_activity`.
+- Explicit personal decisions, stable preferences (including how the user wants to collaborate with AI), important actual experiences and sustained goals: `capture_memory` with the corresponding type. A personal preference expressed while discussing a project remains personal.
+- A new, reusable conclusion reached in AI, career or life exploration: `capture_memory(type="exploration")`, with the actual speaker and evidence. An open question or unfinished brainstorming is not such a conclusion. Considering an option is not a confirmed decision.
+- Mixed project progress and a distinct personal conclusion: write the two different claims separately only if each qualifies. Do not copy the same summary into both stores.
+- Questions, no new conclusion, or a repeated existing conclusion: no write. Do not manufacture a conclusion to satisfy a recording rule.
+
+Within the owner's already-authorized ordinary, non-sensitive personal-memory workflow, act on qualifying conclusions without waiting for “remember this” and without asking for authorization again on every event. OAuth scope alone or the mere presence of this Skill is not consent. Use the actual authorization supplied by the owner/session as `authorization_ref`; if that authorization is missing in a fresh client, state the missing boundary and request it once. Do not invent it or substitute an Activity write for a personal-memory write.
+
+Before a personal write, call `recall_memory` for the same topic, inspect the returned current evidence, and choose new capture, skip duplicate, or a new ID with `supersedes` for a real revision. An identical preference with no new context needs no write. Unknown or truncated coverage needs a refined query. Sensitive information and third-party privacy still require specific explicit authorization. Never store an unconfirmed inference as a certain fact.
+
+For an insufficient lexical recall, try one faithful translation or paraphrase in the other language, preserving entities, numbers, negation and time constraints. Merge candidates by memory ID/source and verify evidence; query expansion is not a new user fact. Do not claim the first query succeeded, and do not turn a second miss into a claim that no history exists.
+
+`source_refs` may be opaque session or authorization references, not vault paths. Live-read `hit.source.path`; only open another reference if it is known to be an actual accessible source. Do not pass opaque references to `read_context` or claim their original text was read.
+
+Evaluate this route when a substantive conclusion forms, before the next final reply. Do not force a write every turn and do not wait for a session-end hook. If the host exposes and permits tool selection, the model can choose these tools during a response; a Skill cannot guarantee implicit loading, invocation, client permissions, retries after the response ends, or access to unseen chats. Report actual calls and `vault_synced`, not an intention to save.
 
 ## Personal long-term memory (V3)
 
