@@ -62,7 +62,8 @@ export async function indexStatus(env: SearchEnv) {
     env.SEARCH_DB.prepare('SELECT COUNT(*) AS notes, MIN(indexed_at) AS oldestIndexedAt, MAX(indexed_at) AS newestIndexedAt FROM notes').first(),
   ]);
   const values = Object.fromEntries(meta.results.map(r => [r.key, r.value]));
-  return { ...counts, root: values.root, lastFullScanAt: values.last_full_scan_at || null,
+  return { ...counts, observedAt: new Date().toISOString(), root: values.root, lastFullScanAt: values.last_full_scan_at || null,
+    diagnostic: values.sync_diagnostic || null,
     initialSource: values.initial_source || null, sync: values.sync_state ? JSON.parse(values.sync_state) : null };
 }
 export async function searchContent(env: SearchEnv, options: SearchOptions) {

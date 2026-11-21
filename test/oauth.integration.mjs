@@ -94,6 +94,25 @@ test('fresh OAuth + PKCE + MCP read, scoped append and idempotent retry', async 
    assert.equal(JSON.parse(result.result.content[0].text).vault_synced,true);
   }
   assert.equal(activity.sql.prepare('SELECT COUNT(*) AS n FROM shared_activity').get().n,1);
+  const memory={memory_id:'oauth_memory_001',topic:'career-transition',type:'exploration',summary:'Considering a career change',agent:'ChatGPT',session_ref:'synthetic-chat',source_refs:['fixture:user-statement'],evidence:'user_statement',stance:'considering',occurred_at:'2026-01-01T00:00:00Z',valid_from:'2026-01-01T00:00:00Z',authorization_ref:'fixture:owner-authorized'};
+  for(const denied of [token,writer,activityWriter]){
+    const rejected=await rpc(denied,'tools/call',{name:'capture_memory',arguments:memory});
+    assert.equal(rejected.result.isError,true);
+    assert.ok(rejected.result._meta['mcp/www_authenticate'][0].includes('context:write:memory'));
+  }
+  assert.equal(activity.sql.prepare('SELECT COUNT(*) AS n FROM personal_memory').get().n,0);
+  const memoryWriter=await authorize('context:read context:write:memory');
+  for(let i=0;i<2;i++){
+    const captured=await rpc(memoryWriter,'tools/call',{name:'capture_memory',arguments:memory});
+    assert.ok(!captured.result.isError,JSON.stringify(captured));
+    assert.equal(JSON.parse(captured.result.content[0].text).vault_synced,true);
+  }
+  assert.equal(activity.sql.prepare('SELECT COUNT(*) AS n FROM personal_memory').get().n,1);
+  const recalled=await rpc(token,'tools/call',{name:'recall_memory',arguments:{query:'career transition'}});
+  assert.equal(JSON.parse(recalled.result.content[0].text).matches[0].id,memory.memory_id);
+  const invalidMemory=await rpc(memoryWriter,'tools/call',{name:'capture_memory',arguments:{...memory,memory_id:'oauth_memory_bad',evidence:'inference',stance:'confirmed'}});
+  assert.equal(invalidMemory.result.isError,true);
+  assert.equal((await rpc(memoryWriter,'tools/call',{name:'append_activity',arguments:event})).result.isError,true);
   const context=await rpc(token,'tools/call',{name:'get_activity_context',arguments:{project:event.project}});
   assert.equal(JSON.parse(context.result.content[0].text).activities[0].event_id,event.event_id);
   assert.equal((await rpc(activityWriter,'tools/call',{name:'append_diet_record',arguments:args})).result.isError,true);

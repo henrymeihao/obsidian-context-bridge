@@ -69,3 +69,7 @@ npm test
 此源码包不包含原部署配置、个人笔记、搜索数据库、凭证、日志或排障记录。尚未在一个全新的第三方账号中完成端到端部署验证；发布前应按部署指南走通自己的测试笔记。
 
 许可证：[MIT](LICENSE)。
+
+## V3 personal memory
+
+V3 adds independent `capture_memory` / `recall_memory` alongside the existing Activity system. See [V3 contract, audit, deployment and acceptance](docs/v3-memory.md). Existing Activity grants do not authorize personal memory writes. This repository change does not deploy or collect historic chats.

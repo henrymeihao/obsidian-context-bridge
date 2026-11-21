@@ -3,7 +3,7 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync} from 'node:fs';
 export function fixture() {
   const sql=new DatabaseSync(':memory:');
-  sql.exec('CREATE TABLE index_meta(key TEXT PRIMARY KEY,value TEXT NOT NULL)');
+  sql.exec(readFileSync(new URL('../schema.sql',import.meta.url),'utf8'));
   sql.exec(readFileSync(new URL('../migrations/0001_shared_activity.sql',import.meta.url),'utf8'));
   const db={prepare(query:string){let args:any[]=[];const self={bind(...values:any[]){args=values;return self;},async run(){sql.prepare(query).run(...args);return {success:true};},async first(column?:string){const row=sql.prepare(query).get(...args) as any;return column?row?.[column]??null:row??null;},async all(){return {results:sql.prepare(query).all(...args),success:true};}};return self;}};
   const env={ACCESS_MODE:'vault',WEBDAV_ROOT:'fixture',ALLOWED_NOTES:'',WEBDAV_USERNAME:'fixture',WEBDAV_PASSWORD:'fixture',SEARCH_DB:db as unknown as D1Database};

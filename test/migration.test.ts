@@ -17,3 +17,19 @@ test('activity migration is additive, repeatable and matches fresh install schem
     assert.deepEqual(db.prepare('PRAGMA index_list(shared_activity)').all(),fresh.prepare('PRAGMA index_list(shared_activity)').all());
   } finally {db.close();fresh.close();}
 });
+
+test('V3 migration preserves Activity and note data and matches fresh schema',()=>{
+ const db=new DatabaseSync(':memory:'),fresh=new DatabaseSync(':memory:');
+ try{
+  const schema=readFileSync(new URL('../schema.sql',import.meta.url),'utf8');
+  db.exec(schema.split('-- Additive only;')[0]);
+  db.exec("INSERT INTO shared_activity(vault,event_id,payload,fingerprint,project,task_id,occurred_at,recorded_at) VALUES('fixture','preserved','{}','hash','demo','task','2026','2026')");
+  const migration=readFileSync(new URL('../migrations/0002_personal_memory.sql',import.meta.url),'utf8');
+  db.exec(migration);db.exec(migration);fresh.exec(schema);
+  assert.equal(db.prepare('SELECT event_id FROM shared_activity').get()!.event_id,'preserved');
+  for(const table of ['personal_memory','memory_views']){
+    assert.deepEqual(db.prepare(`PRAGMA table_info(${table})`).all(),fresh.prepare(`PRAGMA table_info(${table})`).all());
+    assert.deepEqual(db.prepare(`PRAGMA index_list(${table})`).all(),fresh.prepare(`PRAGMA index_list(${table})`).all());
+  }
+ }finally{db.close();fresh.close();}
+});

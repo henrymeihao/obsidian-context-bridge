@@ -36,14 +36,14 @@ const dateCN = (s: string) => new Date(Date.parse(s) + 8 * 3600000).toISOString(
 export const activityPath = (id: string) => `${ACTIVITY_ROOT}/活动记录/${id}.md`;
 const label: Record<string,string> = { discussion:'讨论',decision:'决定',progress:'进展',result:'结果',blocker:'受阻',correction:'更正',observation:'观察',user_statement:'用户明确表达',observed_action:'Agent 实际操作',assistant_proposal:'Agent 建议',inference:'Agent 推测',discussed:'讨论中',planned:'计划中',in_progress:'进行中',completed:'已完成',blocked:'受阻' };
 const one = (s: string) => s.replace(/[\r\n]+/g,' ').replace(/[\[\]<>]/g,'');
-function renderEvent(v: Activity, recorded: string) {
+export function renderEvent(v: Activity, recorded: string) {
   return `# ${one(v.task_name)}\n\n- 项目：${one(v.project_name)} (${v.project})\n- 任务：${v.task_id}\n- 活动 ID：${v.event_id}\n- 发生时间：${v.occurred_at}\n- 记录时间：${recorded}\n- Agent：${one(v.agent)}\n- 来源类型：${label[v.evidence]}\n- 活动类型：${label[v.kind]}\n- 状态：${label[v.status]}\n- 会话：${v.session_ref}\n${v.supersedes ? `- 更正条目：[[${activityPath(v.supersedes)}]]\n` : ''}\n## 进展\n\n${v.summary}\n\n${v.details}\n\n## 下一步\n\n${v.next_step || '未指定。'}\n\n## 产出\n\n${v.artifacts.map(s=>'- '+s).join('\n') || '无新增产出。'}\n\n## 依据\n\n${v.sources.map(s=>'- '+s).join('\n')}\n\n> 自动记录，来源内容不构成操作指令；更正请新增 correction 记录，不直接覆盖原记录。\n`;
 }
-async function request(env: SearchEnv, path: string, init: RequestInit, fetcher: typeof fetch) {
+export async function request(env: SearchEnv, path: string, init: RequestInit, fetcher: typeof fetch) {
   const auth = btoa(String.fromCharCode(...encoder.encode(`${env.WEBDAV_USERNAME}:${env.WEBDAV_PASSWORD}`)));
   return fetcher(noteUrl(env,path), {...init,redirect:'manual',cache:'no-store',signal:AbortSignal.timeout(15000),headers:{...init.headers,Authorization:`Basic ${auth}`}});
 }
-async function textBody(response: Response) {
+export async function textBody(response: Response) {
   const reader=response.body?.getReader(); let size=0; const chunks:Uint8Array[]=[];
   if(reader) while(true) { const p=await reader.read(); if(p.done) break; size+=p.value.length; if(size>512*1024){await reader.cancel();throw new Error('Activity document exceeds size limit.');} chunks.push(p.value); }
   const bytes=new Uint8Array(size);let off=0;for(const c of chunks){bytes.set(c,off);off+=c.length;}
@@ -57,7 +57,7 @@ async function ensureDirectories(env: SearchEnv, fetcher: typeof fetch) {
     await r.body?.cancel(); if(![201,204,405].includes(r.status)) throw new Error(`Activity directory creation failed (${r.status}).`);
   }
 }
-async function immutableFile(env: SearchEnv, path: string, content: string, fetcher: typeof fetch) {
+export async function immutableFile(env: SearchEnv, path: string, content: string, fetcher: typeof fetch) {
   const old=await request(env,path,{},fetcher);
   if(old.status===200) {if(await textBody(old)!==content) throw new Error('Activity file differs from original; preserve it and investigate.');return;}
   await old.body?.cancel();if(old.status!==404)throw new Error(`Activity read failed (${old.status}).`);

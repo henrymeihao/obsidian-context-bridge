@@ -4,7 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { compileQuery, compileGlob, findLines, searchContent, indexStatus } from '../src/search.js';
 import { readNote } from '../src/read.js';
-import { syncIndex } from '../src/sync.js';
+import { syncIndex, syncErrorCode } from '../src/sync.js';
 
 function fixture(notes: { path: string; text: string }[]) {
   const sqlite = new DatabaseSync(':memory:');
@@ -115,4 +115,59 @@ test('cloud refresh reindexes changed text and preserves old records when listin
   assert.equal((sqlite.prepare('SELECT COUNT(*) n FROM notes').get() as any).n, 1);
   const state = (await indexStatus(env) as any).sync;
   assert.equal(state.complete, false); assert.ok(state.lastError);
+});
+
+test('poison item is deferred with safe diagnostics; healthy work checkpoints and resumes',async()=>{
+  const {env,sqlite}=fixture([{path:'keep.md',text:'preserved'}]);
+  const entry=(path:string)=>({path,type:'note',bytes:5,lastModified:null});
+  const state={generation:'test-generation',queue:[],pending:[entry('bad.md'),entry('good.md')],complete:false,skipped:[]};
+  sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify(state));
+  let badCalls=0,goodCalls=0;
+  const fetcher=(async(url:any)=>{
+    if(String(url).endsWith('bad.md')){badCalls++;return new Response('credential PRIVATE_NOTE_SHOULD_NOT_PERSIST',{status:429});}
+    goodCalls++;const saved=JSON.parse(sqlite.prepare("SELECT value FROM index_meta WHERE key='sync_state'").get()!.value as string);
+    assert.equal(saved.deferred.length,1,'failed work was checkpointed before next request');
+    return new Response('fresh');
+  }) as typeof fetch;
+  await syncIndex(env,fetcher);
+  let status=await indexStatus(env) as any;assert.equal(status.sync.complete,false);assert.equal(status.sync.lastError,'webdav_429');
+  assert.equal(status.notes,2);assert.equal(badCalls,1);assert.equal(goodCalls,1);assert.ok(status.sync.checkpointAt);assert.ok(status.sync.lastProgressAt);
+  assert.ok(!JSON.stringify(status).includes('PRIVATE_NOTE'));
+  await syncIndex(env,fetcher);assert.equal(badCalls,1,'respect backoff');assert.equal(goodCalls,1,'do not restart completed work');
+  const saved=status.sync;saved.retries['bad.md'].after=0;
+  sqlite.prepare("UPDATE index_meta SET value=? WHERE key='sync_state'").run(JSON.stringify(saved));
+  await syncIndex(env,async()=>new Response('fixed'));
+  status=await indexStatus(env) as any;assert.equal(status.sync.complete,true);assert.ok(status.lastFullScanAt);assert.equal(status.sync.lastError,undefined);
+  assert.equal(sqlite.prepare("SELECT content FROM notes WHERE path='bad.md'").get()!.content,'fixed');
+  assert.equal(syncErrorCode(new Error('secret URL username private body')),'storage_or_network');
+  assert.equal(syncErrorCode(new DOMException('private url','TimeoutError')),'timeout');
+});
+
+test('index root mismatch is observable without resetting index; expired lease can resume',async()=>{
+  const {env,sqlite}=fixture([{path:'a.md',text:'preserved'}]);
+  await syncIndex({...env,WEBDAV_ROOT:'other'},async()=>{throw new Error('must not fetch');});
+  assert.equal((await indexStatus(env)).diagnostic,'root_mismatch');
+  assert.equal(sqlite.prepare('SELECT content FROM notes').get()!.content,'preserved');
+  sqlite.prepare("INSERT INTO index_meta VALUES('sync_lock',?)").run(String(Date.now()-1));
+  await syncIndex(env,async()=>new Response('<multistatus/>'));
+  assert.equal((await indexStatus(env)).diagnostic,null);
+});
+
+test('deleted queued non-root directory does not stall remaining scan; root 404 preserves index',async()=>{
+  const {env,sqlite}=fixture([{path:'keep.md',text:'preserved'}]);
+  const state={generation:'test-generation',queue:[{path:'renamed-folder',offset:0},{path:'',offset:0}],pending:[],complete:false,skipped:[]};
+  sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify(state));
+  await syncIndex(env,async()=>new Response(null,{status:404}));
+  const status=await indexStatus(env) as any;
+  assert.equal(status.sync.retiredDirectories,1);assert.equal(status.sync.deferred.length,1);
+  assert.equal(status.sync.deferred[0].path,'');assert.equal(status.sync.complete,false);
+  assert.equal(sqlite.prepare('SELECT content FROM notes').get()!.content,'preserved');
+});
+
+test('request-budget yield checkpoints notes and next invocation avoids re-fetching completed work',async()=>{
+  const {env,sqlite}=fixture([]);
+  sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify({generation:'fixture',queue:[],pending:Array.from({length:12},(_,i)=>({path:`note-${i}.md`,type:'note',bytes:5,lastModified:null})),complete:false,skipped:[]}));
+  const seen=new Set<string>();const fetcher=(async(url:any)=>{assert.ok(!seen.has(String(url)));seen.add(String(url));return new Response('hello');}) as typeof fetch;
+  await syncIndex(env,fetcher);assert.equal(seen.size,10);assert.equal((await indexStatus(env) as any).sync.pending.length,2);
+  await syncIndex(env,fetcher);assert.equal(seen.size,12);assert.equal((await indexStatus(env) as any).sync.complete,true);
 });
