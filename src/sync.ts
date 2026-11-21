@@ -9,10 +9,13 @@ interface SyncState {
  retiredDirectories?: number;
  // Only a traversal started at the root by this implementation may prune.
  pruneSafe?: boolean; rescanReason?: string;
+ scanVersion?: number; rootComplete?: boolean; sweepBlocked?: boolean;
+ phase?: 'scan' | 'verify'; sweepQueue?: {path:string;after?:number}[];
+ deletions?: {path:string;reason:'verified_note_404';verifiedAt:string}[];
 }
 const MAX_SCAN_AGE_MS = 24 * 60 * 60 * 1000;
 function freshScan(previous?: SyncState): SyncState {
-  return {generation:new Date().toISOString(),queue:[{path:'',offset:0}],pending:[],complete:false,skipped:[],pruneSafe:true,
+  return {generation:new Date().toISOString(),queue:[{path:'',offset:0}],pending:[],complete:false,skipped:[],pruneSafe:true,scanVersion:2,rootComplete:false,phase:'scan',retries:{},deferred:[],
     ...(previous?{rescanReason:'expired_or_untrusted_generation',retiredDirectories:previous.retiredDirectories,lastProgressAt:previous.lastProgressAt}:{})};
 }
 const isoTime = (value:string|null|undefined) => value && Number.isFinite(Date.parse(value)) ? new Date(value).toISOString() : null;
@@ -62,10 +65,38 @@ async function runSync(env: SearchEnv, fetcher: typeof fetch) {
     await db.prepare("INSERT OR REPLACE INTO index_meta(key,value) VALUES('sync_state',?)").bind(JSON.stringify(state)).run();
   };
   const deadline = Date.now() + 25000;
+  const deleteVerifiedMissing = async (path:string) => {
+    // No absence inference from a directory listing: this path just returned GET 404.
+    const deleted=await db.prepare('DELETE FROM notes WHERE path=? AND seen_generation<>? RETURNING path').bind(path,state.generation).first<{path:string}>();
+    if(deleted)(state.deletions??=[]).push({path,reason:'verified_note_404',verifiedAt:new Date().toISOString()});
+  };
   try {
-    while (requests < 10 && Date.now() < deadline && (state.pending.length || state.queue.length)) {
+    while (requests < 10 && Date.now() < deadline && (state.pending.length || state.queue.length || state.sweepQueue?.length)) {
       // Persist each completed item/page; an interrupted Worker resumes from this checkpoint.
       await checkpoint();
+      if (state.phase==='verify') {
+        const age=Date.now()-Date.parse(state.generation);
+        if(state.scanVersion!==2 || !state.pruneSafe || !state.rootComplete || state.sweepBlocked || state.skipped.length || !Number.isFinite(age) || age<0 || age>MAX_SCAN_AGE_MS) {
+          state=freshScan(state);await checkpoint();break;
+        }
+        const index=state.sweepQueue!.findIndex(item=>!item.after||item.after<=Date.now());
+        if(index<0)break;
+        const item=state.sweepQueue![index];requests++;
+        try {
+          await readNote(env,item.path,fetcher,{length:1});
+          // Still exists: preserve its indexed content; the next scan can refresh it.
+          state.sweepQueue!.splice(index,1);delete state.retries[item.path];
+        } catch(error) {
+          const code=syncErrorCode(error);
+          if(code==='webdav_404') {await deleteVerifiedMissing(item.path);state.sweepQueue!.splice(index,1);delete state.retries[item.path];}
+          else {
+            const attempts=(state.retries[item.path]?.attempts??0)+1;
+            item.after=Date.now()+Math.min(3600000,30000*2**Math.min(attempts-1,7));
+            state.retries[item.path]={attempts,after:item.after,code};state.lastError=code;
+          }
+        }
+        await checkpoint();continue;
+      }
       const workPath = state.pending[0]?.path ?? state.queue[0].path;
       try {
       if (state.pending.length) {
@@ -92,8 +123,9 @@ async function runSync(env: SearchEnv, fetcher: typeof fetch) {
           if (error instanceof Error && (error.message === 'Index size limit' || /WebDAV read failed \(404\)/.test(error.message))) {
             state.skipped.push(entry.path);
             state.pending.shift();
-            // Do not continue serving an obsolete copy of a deleted/now-oversized note.
-            await db.prepare('DELETE FROM notes WHERE path=?').bind(entry.path).run();
+            // Oversized is not evidence of deletion. Only an independent GET 404
+            // permits precise removal, including during an interrupted old scan.
+            if(syncErrorCode(error)==='webdav_404')await deleteVerifiedMissing(entry.path);
           } else throw error;
         }
         await checkpoint(); continue;
@@ -102,6 +134,7 @@ async function runSync(env: SearchEnv, fetcher: typeof fetch) {
       requests++;
       const page = await listDirectory(env, current.path, current.offset, 200, fetcher);
       if (page.serverMayHaveMore && !state.skipped.includes('[directory listing may be truncated]')) state.skipped.push('[directory listing may be truncated]');
+      if(current.path==='' && page.nextOffset==null)state.rootComplete=true;
       const entries = page.entries.filter(e => e.type === 'note');
       const old = entries.length ? await db.prepare('SELECT path,bytes,modified,etag FROM notes WHERE path IN (SELECT value FROM json_each(?))')
         .bind(JSON.stringify(entries.map(e => e.path))).all<{ path: string; bytes: number; modified: string | null; etag: string | null }>() : { results: [] };
@@ -123,6 +156,7 @@ async function runSync(env: SearchEnv, fetcher: typeof fetch) {
       } catch (error) {
         const previous = state.retries[workPath]?.attempts ?? 0;
         const code = syncErrorCode(error);
+        state.sweepBlocked=true;
         if(code==='webdav_404' && workPath!=='' && !state.pending.length) {
           // A queued folder may have been renamed/deleted since the earlier listing.
           // Root 404 is never interpreted as an empty vault.
@@ -137,24 +171,32 @@ async function runSync(env: SearchEnv, fetcher: typeof fetch) {
       }
       await checkpoint();
     }
-    if (!state.deferred.length) delete state.lastError;
-    if (!state.queue.length && !state.pending.length && !state.deferred.length) {
+    if (!state.deferred?.length && !state.sweepQueue?.length) delete state.lastError;
+    if (!state.queue.length && !state.pending.length && !state.deferred?.length && !state.sweepQueue?.length) {
       const age = Date.now() - Date.parse(state.generation);
-      if (!state.pruneSafe || !Number.isFinite(age) || age < 0 || age > MAX_SCAN_AGE_MS) {
+      if (!state.pruneSafe || state.scanVersion!==2 || !Number.isFinite(age) || age < 0 || age > MAX_SCAN_AGE_MS) {
         // Preserve indexed content and completed updates from an old/interrupted scan.
         // Queue a new root traversal for the next invocation; never loop here or
         // advance last_full_scan_at using stale directory evidence.
         state = freshScan(state);
       } else {
-        if (!state.skipped.includes('[directory listing may be truncated]')) await db.prepare('DELETE FROM notes WHERE seen_generation<>?').bind(state.generation).run();
-        await db.prepare("INSERT OR REPLACE INTO index_meta(key,value) VALUES('last_full_scan_at',?)").bind(new Date().toISOString()).run();
-        state.complete = true;
-        state.nextScanAfter = Date.now() + 2 * 60000;
+        const eligible=state.rootComplete && !state.sweepBlocked && !state.skipped.length;
+        if(eligible && state.phase!=='verify') {
+          const candidates=await db.prepare('SELECT path FROM notes WHERE seen_generation<>? ORDER BY path').bind(state.generation).all<{path:string}>();
+          state.phase='verify';state.sweepQueue=candidates.results.map(r=>({path:r.path}));
+        }
+        if(!state.sweepQueue?.length) {
+          // No global DELETE: every removed index row has its own live GET 404.
+          if(eligible)await db.prepare("INSERT OR REPLACE INTO index_meta(key,value) VALUES('last_full_scan_at',?)").bind(new Date().toISOString()).run();
+          state.complete = true;
+          state.nextScanAfter = Date.now() + 2 * 60000;
+        }
       }
     }
   } catch (error) {
     // Retain the work item and retry later. Do not persist credentials or upstream response bodies.
     state.lastError = syncErrorCode(error);
+    state.sweepBlocked=true;
   }
   await checkpoint();
 }

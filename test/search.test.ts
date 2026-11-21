@@ -90,11 +90,12 @@ test('cloud refresh keeps unchanged content, adopts metadata and deletes notes o
   const original = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async (_url, init) => {
-    calls++; assert.equal(init?.method, 'PROPFIND');
+    calls++; if(init?.method==='GET')return new Response(null,{status:404});
+    assert.equal(init?.method, 'PROPFIND');
     return new Response('<d:multistatus xmlns:d="DAV:"><d:response><d:href>/dav/obsidian/a.md</d:href><d:propstat><d:status>HTTP/1.1 200 OK</d:status><d:prop><d:resourcetype/><d:getcontentlength>5</d:getcontentlength><d:getetag>etag-test</d:getetag><d:getlastmodified>Wed, 11 Nov 2026 00:00:00 GMT</d:getlastmodified></d:prop></d:propstat></d:response></d:multistatus>', { status: 207 });
   };
-  try { await syncIndex(env); } finally { globalThis.fetch = original; }
-  assert.equal(calls, 1);
+  try { await syncIndex(env); await syncIndex(env); } finally { globalThis.fetch = original; }
+  assert.equal(calls, 2);
   assert.equal((sqlite.prepare('SELECT COUNT(*) n FROM notes').get() as any).n, 1);
   assert.equal((sqlite.prepare("SELECT content FROM notes WHERE path='a.md'").get() as any).content, 'hello');
   const status = await indexStatus(env) as any;
@@ -120,7 +121,7 @@ test('cloud refresh reindexes changed text and preserves old records when listin
 test('poison item is deferred with safe diagnostics; healthy work checkpoints and resumes',async()=>{
   const {env,sqlite}=fixture([{path:'keep.md',text:'preserved'}]);
   const entry=(path:string)=>({path,type:'note',bytes:5,lastModified:null});
-  const state={generation:new Date().toISOString(),pruneSafe:true,queue:[],pending:[entry('bad.md'),entry('good.md')],complete:false,skipped:[]};
+  const state={generation:new Date().toISOString(),pruneSafe:true,scanVersion:2,rootComplete:true,queue:[],pending:[entry('bad.md'),entry('good.md')],complete:false,skipped:[]};
   sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify(state));
   let badCalls=0,goodCalls=0;
   const fetcher=(async(url:any)=>{
@@ -137,7 +138,7 @@ test('poison item is deferred with safe diagnostics; healthy work checkpoints an
   const saved=status.sync;saved.retries['bad.md'].after=0;
   sqlite.prepare("UPDATE index_meta SET value=? WHERE key='sync_state'").run(JSON.stringify(saved));
   await syncIndex(env,async()=>new Response('fixed'));
-  status=await indexStatus(env) as any;assert.equal(status.sync.complete,true);assert.ok(status.lastFullScanAt);assert.equal(status.sync.lastError,undefined);
+  status=await indexStatus(env) as any;assert.equal(status.sync.complete,true);assert.equal(status.lastFullScanAt,null);assert.equal(status.sync.lastError,undefined);
   assert.equal(sqlite.prepare("SELECT content FROM notes WHERE path='bad.md'").get()!.content,'fixed');
   assert.equal(syncErrorCode(new Error('secret URL username private body')),'storage_or_network');
   assert.equal(syncErrorCode(new DOMException('private url','TimeoutError')),'timeout');
@@ -166,7 +167,7 @@ test('deleted queued non-root directory does not stall remaining scan; root 404 
 
 test('request-budget yield checkpoints notes and next invocation avoids re-fetching completed work',async()=>{
   const {env,sqlite}=fixture([]);
-  sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify({generation:new Date().toISOString(),pruneSafe:true,queue:[],pending:Array.from({length:12},(_,i)=>({path:`note-${i}.md`,type:'note',bytes:5,lastModified:null})),complete:false,skipped:[]}));
+  sqlite.prepare("INSERT INTO index_meta VALUES('sync_state',?)").run(JSON.stringify({generation:new Date().toISOString(),pruneSafe:true,scanVersion:2,rootComplete:true,queue:[],pending:Array.from({length:12},(_,i)=>({path:`note-${i}.md`,type:'note',bytes:5,lastModified:null})),complete:false,skipped:[]}));
   const seen=new Set<string>();const fetcher=(async(url:any)=>{assert.ok(!seen.has(String(url)));seen.add(String(url));return new Response('hello');}) as typeof fetch;
   await syncIndex(env,fetcher);assert.equal(seen.size,10);assert.equal((await indexStatus(env) as any).sync.pending.length,2);
   await syncIndex(env,fetcher);assert.equal(seen.size,12);assert.equal((await indexStatus(env) as any).sync.complete,true);
@@ -191,6 +192,8 @@ test('stale or untrusted scan cannot prune until a new complete root traversal',
     assert.deepEqual(restarted.sync.queue,[{path:'',offset:0}]);
     assert.equal(restarted.sync.rescanReason,'expired_or_untrusted_generation');
     await syncIndex(env,async()=>new Response('<multistatus xmlns="DAV:"><response><href>/dav/obsidian/keep.md</href><propstat><status>HTTP/1.1 200 OK</status><prop><resourcetype/><getetag>etag-test</getetag><getcontentlength>9</getcontentlength></prop></propstat></response></multistatus>',{status:207}));
+    assert.ok(sqlite.prepare("SELECT path FROM notes WHERE path='gone.md'").get(),'listing absence alone never deletes');
+    await syncIndex(env,async()=>new Response(null,{status:404}));
     const fresh=await indexStatus(env) as any;
     assert.equal(fresh.sync.complete,true);assert.notEqual(fresh.lastFullScanAt,previous);
     assert.equal(sqlite.prepare("SELECT content FROM notes WHERE path='keep.md'").get()!.content,'preserved');

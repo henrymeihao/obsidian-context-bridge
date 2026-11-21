@@ -12,8 +12,8 @@
 - 其他失败保留工作项，30 秒起指数退避，上限 1 小时。失败项移入 `deferred`，健康工作继续。每次 cron 重试到期项，不丢弃失败项。
 - 每个文件/目录页前后持久化检查点；Worker 中断最多重做当前项，不从根开始。保留旧 `sync_state` 格式的兼容性。
 - 120 秒租约避免并发扫库，正常结束按租约值释放，崩溃后过期接续。按请求/时间预算分轮。
-- 仅在全轮完成、没有延迟重试且目录列表无截断信号时，沿用既有逻辑移除已不存在的索引条目；不清空索引或重置 Activity。超大笔记仍按既有限制跳过。
-- 发布预检补丁：只有由当前代码从根开始、带 `pruneSafe=true` 且不超过 24 小时的扫描，结束后才允许整轮清理。旧版本状态、无效/未来 generation 或过期扫描结束时保留旧索引与已完成更新，排入新的根扫描，`complete=false`、`rescanReason=expired_or_untrusted_generation`，不更新 `lastFullScanAt`。下一轮继续，不在单次调用中循环重启；大型扫描超过 24 小时会保守保留旧条目，不能声称完成了删除核实。
+- 全局 Sweep 已禁用，不再通过 `DELETE ... WHERE seen_generation<>...` 推断文件已删除。只有由当前版本从根开始且完整结束、无错误/截断/跳过项的扫描，才生成未标记笔记的核实队列；候选必须独立 GET 返回 404 才按路径条件删除。目录漏列但 GET 仍存在、权限错误、临时失败、超大文件都保留索引。核实队列及重试持久化，`deletions` 给出本轮实际删除的路径、固定原因及验证时间；不向 WebDAV 发送 DELETE 或改写原 Markdown。
+- 发布预检补丁：当前扫描带 `scanVersion=2`、`pruneSafe=true`、`rootComplete` 根遍历证据，且不得超过 24 小时。旧版本状态（包括只有 pruneSafe 的初版补丁）、无效/未来 generation 或过期扫描结束时保留旧索引与已完成更新，排入新的根扫描，`complete=false`、`rescanReason=expired_or_untrusted_generation`，不更新 `lastFullScanAt`。下一轮继续，不在单次调用中循环重启；大型扫描超过 24 小时会保守保留旧条目。目录错误/404 或文件变化会阻止本轮生成核实队列，后续干净扫描再尝试。`complete=true` 仅代表本轮工作结束，有跳过/错误时不推进 `lastFullScanAt`；不能单独据此声称索引完整。
 - 安全诊断使用固定码：`webdav_401/403/404/429/5xx`、`timeout`、`source_changed`、`directory_format`、`response_size`、`storage_or_network`。不保存任意异常正文、响应体、URL 或凭据。状态中的路径仅是原有队列元数据。
 - 新状态提供 `observedAt`、`checkpointAt`、`lastProgressAt`、逐项 attempts/after/code 和 `root_mismatch`。源 modified 时间逐步规范为 ISO，用于时间检索。
 
