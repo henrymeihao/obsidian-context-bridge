@@ -69,19 +69,35 @@ export function candidateTerms(terms:ReturnType<typeof queryTerms>) {
   return [...weights].map(([term,weight])=>({term,weight,boundary:/^[a-z][a-z0-9]*$/.test(term)}));
 }
 export function relevance(text:string,title:string,terms:ReturnType<typeof queryTerms>) {
-  const body=normalizeRecallText(text),head=normalizeRecallText(title);
+  return compileRelevance(terms)(text,title);
+}
+
+// Build matchers once per request, not once per term, candidate and source line.
+export function compileRelevance(terms:ReturnType<typeof queryTerms>) {
+  const matcher=(raw:string)=>{
+    const word=normalizeRecallText(raw);
+    if(!word)return (_:string)=>false;
+    if(/[\p{Script=Han}]/u.test(word))return (s:string)=>s.includes(word);
+    const escaped=word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const re=new RegExp(`(?<![a-z0-9])${escaped}(?![a-z0-9])`,'u');
+    return (s:string)=>re.test(s);
+  };
+  const exact=terms.exact.map(raw=>({word:normalizeRecallText(raw),has:matcher(raw)}));
+  const groups=terms.groups.map(g=>({generic:genericConcepts.has(g[0]),has:g.map(matcher)}));
   const stages=(s:string)=>[...s.matchAll(/\bphase (\d+)\b/g)].map(m=>m[1]);
-  const requested=stages(terms.exact[0]||''),present=stages(head+' '+body);
+  const requested=stages(terms.exact[0]||'');
+  const normalized=(body:string,head:string)=>{
+  const present=requested.length?stages(head+' '+body):[];
   if(requested.length&&present.length&&!requested.some(n=>present.includes(n)))return 0;
   let score=0,specificExact=false,matchedGroups=0,specificGroup=false;
-  for(const raw of terms.exact){const word=normalizeRecallText(raw);if(!word)continue;if(hasPhrase(body,word)||hasPhrase(head,word)){
-    score+=8+(hasPhrase(head,word)?8:0)+Math.min(8,word.length);
+  for(const {word,has} of exact){if(!word)continue;if(has(body)||has(head)){
+    score+=8+(has(head)?8:0)+Math.min(8,word.length);
     if(!genericWords.has(word))specificExact=true;
   }}
   // Topic/path matches are stronger than body-only expansions. Every matched concept counts once.
-  for(const group of terms.groups){const inHead=group.some(w=>hasPhrase(head,normalizeRecallText(w)));
-    if(inHead||group.some(w=>hasPhrase(body,normalizeRecallText(w)))){
-      score+=inHead?18:10;matchedGroups++;if(!genericConcepts.has(group[0]))specificGroup=true;
+  for(const group of groups){const inHead=group.has.some(has=>has(head));
+    if(inHead||group.has.some(has=>has(body))){
+      score+=inHead?18:10;matchedGroups++;if(!group.generic)specificGroup=true;
     }
   }
   const grams=terms.grams.filter(w=>body.includes(w)||head.includes(w)).length;
@@ -89,5 +105,9 @@ export function relevance(text:string,title:string,terms:ReturnType<typeof query
   const enoughGrams=grams>0&&grams>=Math.min(2,terms.grams.length);
   if(!specificExact&&!specificGroup&&matchedGroups<2&&!enoughGrams&&
     !genericWords.has(terms.exact[0]||''))return 0;
-  return score+(grams>=Math.min(2,terms.grams.length)?grams:0);
+  // A short titled note should not lose to a diary containing more incidental query grams.
+  const headGrams=terms.grams.filter(w=>head.includes(w)).length;
+  return score+(grams>=Math.min(2,terms.grams.length)?grams:0)+headGrams*12;
+  };
+  return Object.assign((text:string,title:string)=>normalized(normalizeRecallText(text),normalizeRecallText(title)),{normalized});
 }

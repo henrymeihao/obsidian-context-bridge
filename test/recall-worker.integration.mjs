@@ -32,3 +32,24 @@ test('workerd/D1 executes bilingual candidate SQL and reads verified memory with
   }
  }finally{await mf.dispose();}
 });
+
+test('workerd/D1 handles long-tail excerpts and bounded natural-query candidates with no network',async()=>{
+ const {outputFiles}=await build({stdin:{contents:`
+ import {recallMemory} from './src/recall.ts';
+ export default {async fetch(request,env){const phases=[];const result=await recallMemory(env,await request.json(),e=>phases.push(e));return Response.json({result,phases});}};
+ `,resolveDir:fileURLToPath(new URL('..',import.meta.url))},bundle:true,format:'esm',platform:'browser',target:'es2022',write:false});
+ const mf=new Miniflare(convertV4MiniflareOptions({modules:true,script:outputFiles[0].text,compatibilityDate:'2026-11-01',d1Databases:{SEARCH_DB:'bounded-recall'},bindings:{ACCESS_MODE:'vault',WEBDAV_ROOT:'fixture',ALLOWED_NOTES:''},outboundService:()=>{throw Error('No network allowed');}}));
+ try{
+  const db=await mf.getD1Database('SEARCH_DB');await db.exec(readFileSync(new URL('../schema.sql',import.meta.url),'utf8').split('\n').filter(l=>!l.trimStart().startsWith('--')).join(' '));
+  await db.prepare("INSERT INTO index_meta VALUES('root','fixture')").run();
+  const insert=(path,text)=>db.prepare('INSERT INTO notes VALUES(?,?,?,?,?,?,?,?)').bind(path,text,text.toLowerCase(),text.length,null,null,'2026-01-01','fixture');
+  for(let i=0;i<220;i+=20)await db.batch(Array.from({length:20},(_,j)=>insert(`diary/${i+j}.md`,'AI时代的旅行和学习记录\n'.repeat(500))));
+  await db.batch([insert('travel/202504琥珀岛.md','琥珀岛旅行记录'),insert('knowledge/late.md','neutral\r\n'.repeat(15000)+'quartzneedle evidence\r\n'),insert('knowledge/phase3.md','Phase 3 MCP connectivity test only.')]);
+  for(const [query,path] of [['找一下我2025年琥珀岛旅行的记录','travel/202504琥珀岛.md'],['quartzneedle','knowledge/late.md'],['第三阶段客户端联通性测试记忆','knowledge/phase3.md'],['Phase 3 MCP connectivity test','knowledge/phase3.md'],['第三阶段 MCP connectivity 验证','knowledge/phase3.md']]){
+   const response=await mf.dispatchFetch('https://fixture.invalid/',{method:'POST',body:JSON.stringify({query,limit:5})});assert.equal(response.status,200);
+   const {result,phases}=await response.json();const hit=result.matches.find(h=>h.id===path);assert.ok(hit,query);
+   assert.ok(phases.find(p=>p.stage==='notes_sql').count<=65);assert.ok(phases.length<=10);assert.ok(result.matches.every(h=>h.summary.length<=1000));
+   if(query==='quartzneedle'){assert.equal(hit.source.startLine,15001);assert.equal(hit.summary,'quartzneedle evidence');}
+  }
+ }finally{await mf.dispose();}
+});
