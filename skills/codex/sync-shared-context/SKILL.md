@@ -1,12 +1,30 @@
 ---
 name: sync-shared-context
-description: Proactively capture authorized personal decisions, stable preferences, experiences, goals and reusable exploration conclusions; recall relevant history on demand. Route project progress to Activity and personal conclusions to Memory; skip questions, unresolved brainstorming and duplicates.
+description: 按需召回过去的个人决定、偏好和跨 Agent 项目近况；在普通对话形成已授权长期结论时先去重再写 Memory，真实项目进展写 Activity。Use for personal-history questions and project resumption without explicit MCP prompts; skip unrelated Q&A, duplicates and unfinished ideas.
 ---
 
 # Shared activity
 
 Use the connected Obsidian Context Bridge tools. This skill does not establish a connection or grant permission. Routine writes require both the owner's explicit authorization for `Agent共享/` activity recording and an OAuth grant for `context:write:activity`. If authorization is absent, read or prepare a proposed record and request authorization before submitting it.
 
+
+## Natural conversation routing — V3 daily use
+
+Select this workflow by meaning, without requiring “call MCP”, “use Skill”, or “remember this”. Examples below are cues, not mandatory keywords. Reuse relevant live evidence already obtained in this conversation; do not repeat retrieval just because another turn began.
+
+|Situation|Action|
+|---|---|
+|“我以前为什么这样决定？” / “我通常偏好哪种方式？” / a task depends on an earlier personal decision, preference or experience|Use focused `recall_memory` before answering; verify the returned source path when quoting or when freshness matters.|
+|“接着上次的项目做” / a current project status or cross-agent handoff is needed|Use `get_activity_context` for that project. Add personal recall only if the task also depends on personal history.|
+|“以后我都更喜欢……” / the user clearly forms a durable, useful, non-sensitive personal conclusion|Under actual owner authorization, recall the same topic first. Skip an unchanged duplicate; capture a new conclusion or a justified revision.|
+|A genuine project milestone, decision, blocker or correction is observed|Record the material delta using `append_activity` before the final reply, with actual evidence and stage. “准备做” stays planned; commit is not deployment.|
+|An ordinary factual/math question, greeting, open brainstorming, temporary remark or unchanged preference|Answer normally. No memory/context call or write merely to satisfy a quota.|
+
+For ordinary discussion, capture at most the useful topic-level conclusion when one actually forms; never harvest the whole chat. An assistant recommendation is not the user's accepted preference. Do not automatically preserve an unaccepted suggestion as personal memory. Sensitive/third-party information still needs specific explicit authorization. Never fabricate a preference or production Memory just to make an acceptance test pass.
+
+Use the real source path and line range returned by the service. Distinguish source text, your summary and your inference; an indexed note is not automatically the user's current position. A lexical miss is unknown coverage: try one faithful reformulation or a focused source search, not a confident “you never said that”. Never inject all history at a new-session boundary.
+
+Client acceptance must separate: (1) Skill present/enabled, (2) model chose it for an unhinted natural request, (3) the tool actually ran with sufficient scope, and (4) the write returned `vault_synced=true`. A manually invoked tool, a Skill-editor save, or a controlled model test alone does not prove automatic triggering in ChatGPT and Codex. Verify each client separately; updating one does not install or reload the other. If a trace is unavailable, say “automatic trigger not verified”.
 
 ## Route before recording
 
