@@ -1,6 +1,6 @@
 ---
 name: sync-shared-context
-description: Use for everyday questions about the user\'s past choices, preferences, Obsidian notes, project progress, or ChatGPT/Codex handoffs (e.g. "之前怎么定的", "最近完成什么", "你还记得吗"). Proactively recall relevant context on demand and selectively record authorized lasting conclusions or verified milestones; skip raw chats and duplicates.
+description: Use for everyday questions about the user's past choices, preferences, Obsidian notes, project progress, or ChatGPT/Codex handoffs (e.g. "之前怎么定的", "最近完成什么", "你还记得吗"). Proactively recall relevant context on demand and selectively record authorized lasting conclusions or verified milestones; skip raw chats and duplicates.
 ---
 
 # Shared activity
