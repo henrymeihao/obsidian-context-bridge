@@ -1,9 +1,21 @@
 ---
 name: sync-shared-context
-description: Proactively capture authorized personal decisions, stable preferences, experiences, goals and reusable exploration conclusions; recall relevant history on demand. Route project progress to Activity and personal conclusions to Memory; skip questions, unresolved brainstorming and duplicates.
+description: Use for everyday questions about the user\'s past choices, preferences, Obsidian notes, project progress, or ChatGPT/Codex handoffs (e.g. "之前怎么定的", "最近完成什么", "你还记得吗"). Proactively recall relevant context on demand and selectively record authorized lasting conclusions or verified milestones; skip raw chats and duplicates.
 ---
 
 # Shared activity
+
+## Natural-language activation in ChatGPT
+
+Evaluate these triggers during ordinary dialogue; the user need not explicitly say "use Skill" or name an MCP tool:
+
+- **Past user decisions, preferences, or history** ("我之前怎么定的", "上次聊过什么", "你还记得吗"): call `recall_memory` with a focused query; live-read the specific source when needed. Do not present native ChatGPT memory as proof of an Obsidian read.
+- **Resuming a project or cross-Agent handoff** ("继续这个项目", "Codex 最近做了什么", "我现在还有什么待办"): call `get_activity_context` for the relevant project and `recall_memory` only for relevant personal context. Attribute actual actions, user statements and proposals separately.
+- **A new durable non-sensitive personal decision/preference/reusable exploration conclusion**: within existing owner authorization, recall the topic to check duplication and then `capture_memory` only if there is a material new conclusion. Do not require "记住" every time; do not save raw dialogue.
+- **Verified project milestones, decisions and blockers**: use `append_activity` once for a meaningful change, with source evidence; do not mark suggestions as shipped.
+- **General knowledge, unresolved ideas, or repeated statements**: answer normally; do not force a memory lookup or write.
+
+This is selection guidance, not proof of client-side Skill auto-loading. An accessible MCP tool does not establish which Skill (if any) the host loaded. When updating an installed Skill, inspect its actual current contents and merge this guidance while preserving **all** existing custom rules and supporting files; the repository copy is not proof of the installed contents.
 
 Use the connected Obsidian Context Bridge tools. This skill does not establish a connection or grant permission. Routine writes require both the owner's explicit authorization for `Agent共享/` activity recording and an OAuth grant for `context:write:activity`. If authorization is absent, read or prepare a proposed record and request authorization before submitting it.
 
