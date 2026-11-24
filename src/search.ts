@@ -1,4 +1,5 @@
 import { RE2JS } from 're2js';
+import { z } from 'zod';
 import { safeParts, type ReadEnv } from './read.js';
 
 export interface SearchEnv extends ReadEnv { SEARCH_DB?: D1Database }
@@ -65,6 +66,57 @@ export async function indexStatus(env: SearchEnv) {
   return { ...counts, observedAt: new Date().toISOString(), root: values.root, lastFullScanAt: values.last_full_scan_at || null,
     diagnostic: values.sync_diagnostic || null,
     initialSource: values.initial_source || null, sync: values.sync_state ? JSON.parse(values.sync_state) : null };
+}
+
+const filenameCursor = z.object({
+  signature: z.string(), path: z.string().min(1).max(2048),
+});
+
+export async function searchIndexedFilenames(env: SearchEnv, options: SearchOptions) {
+  if (!env.SEARCH_DB || env.ACCESS_MODE !== 'vault') throw new Error('Note filename index is not configured; use mode=filename for live lookup.');
+  const path = options.path || '', limit = options.limit ?? 30;
+  safeParts(path, true);
+  const matcher = compileQuery(options.query, options.regex, options.caseSensitive);
+  const glob = compileGlob(options.glob);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('Note search parameters are invalid.');
+  const meta = await env.SEARCH_DB.prepare("SELECT key,value FROM index_meta WHERE key IN ('root','last_full_scan_at')").all<{key: string; value: string}>();
+  const values = Object.fromEntries(meta.results.map(row => [row.key, row.value]));
+  if (values.root !== env.WEBDAV_ROOT) throw new Error('Note search index root does not match the permitted vault.');
+  const signature = JSON.stringify(['filename_indexed', env.WEBDAV_ROOT, options.query, path, options.glob || '', !!options.regex, !!options.caseSensitive]);
+  let afterPath = '';
+  if (options.cursor) {
+    try {
+      if (options.cursor.length > 12000) throw new Error();
+      const cursor = filenameCursor.parse(JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(options.cursor), c => c.charCodeAt(0)))));
+      safeParts(cursor.path);
+      if (cursor.signature !== signature || (path && cursor.path !== path && !cursor.path.startsWith(path + '/'))) throw new Error();
+      afterPath = cursor.path;
+    } catch { throw new Error('Note filename index cursor is invalid; keep the same mode and search options.'); }
+  }
+  type FilenameRow = Pick<IndexedNote, 'path' | 'indexed_at' | 'modified' | 'etag'> & {bytes: number};
+  const matches: {path: string; type: 'note'; bytes: number; lastModified: string | null; etag: string | null; indexedAt: string}[] = [];
+  let scannedFiles = 0, exhausted = false;
+  for (let batch = 0; batch < 10 && matches.length < limit; batch++) {
+    const rows = await env.SEARCH_DB.prepare(`SELECT path,bytes,modified,etag,indexed_at FROM notes
+      WHERE path > ? AND (? = '' OR path = ? OR instr(path,?) = 1)
+      ORDER BY path COLLATE BINARY LIMIT 100`).bind(afterPath, path, path, path + '/').all<FilenameRow>();
+    for (const row of rows.results) {
+      safeParts(row.path);
+      afterPath = row.path; scannedFiles++;
+      if (/\.md$/i.test(row.path) && (!glob || glob.test(row.path)) && matcher.test(row.path)) {
+        matches.push({path: row.path, type: 'note', bytes: row.bytes, lastModified: row.modified, etag: row.etag, indexedAt: row.indexed_at});
+      }
+      if (matches.length === limit) break;
+    }
+    if (matches.length === limit) break;
+    if (rows.results.length < 100) { exhausted = true; break; }
+  }
+  const continuation = exhausted ? null : new TextEncoder().encode(JSON.stringify({signature, path: afterPath}));
+  return {query: options.query, mode: 'filename_indexed', matchType: 'filename-and-path', matches,
+    nextCursor: continuation ? btoa(String.fromCharCode(...continuation)) : null, scannedFiles, directoriesRequested: 0,
+    lastFullScanAt: values.last_full_scan_at || null,
+    freshness: 'Indexed paths only; new, changed, oversized or unsuccessfully indexed files may be missing or stale. A completed cursor covers this index, not the live vault. Use mode=filename for live discovery and read_context to verify a file.',
+  };
 }
 export async function searchContent(env: SearchEnv, options: SearchOptions) {
   if (!env.SEARCH_DB || env.ACCESS_MODE !== 'vault') throw new Error('Note full-text index is not configured.');

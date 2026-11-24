@@ -18,7 +18,8 @@ test('fresh OAuth + PKCE + MCP read, scoped append and idempotent retry', async 
   async list(o) { return {keys:[...data].filter(([k])=>k.startsWith(o?.prefix||'')).map(([name,r])=>({name,metadata:r.metadata})),list_complete:true,cursor:''}; }
  };
  const env={PUBLIC_ORIGIN:origin,OAUTH_KV:kv,WEBDAV_ROOT:'example',ALLOWED_NOTES:'测试.md,饮食记录.md',WEBDAV_USERNAME:'fixture',WEBDAV_PASSWORD:'fixture',OWNER_KEY_SHA256:createHash('sha256').update(key).digest('hex')};
- const ctx=()=>({waitUntil(){},passThroughOnException(){},props:{}});
+ const background=[];
+ const ctx=()=>({waitUntil(job){background.push(job);},passThroughOnException(){},props:{}});
  const request=(p,init={})=>worker.fetch(new Request(origin+p,init),env,ctx());
  assert.equal((await request('/mcp',{method:'POST'})).status,401);
  const discovery=await (await request('/.well-known/oauth-authorization-server')).json();
@@ -79,6 +80,11 @@ test('fresh OAuth + PKCE + MCP read, scoped append and idempotent retry', async 
   const activity=fixture();
   Object.assign(env,activity.env);
   globalThis.fetch=activity.fetcher;
+  await Promise.all(background.splice(0));
+  const metaBefore = activity.sql.prepare('SELECT * FROM index_meta ORDER BY key').all();
+  await rpc(token,'tools/list',{});
+  await Promise.all(background.splice(0));
+  assert.deepEqual(activity.sql.prepare('SELECT * FROM index_meta ORDER BY key').all(),metaBefore,'read requests must not start index maintenance');
   const event={event_id:'oauth_activity_001',project:'demo-project',project_name:'Demo',task_id:'demo-task',task_name:'Demo task',agent:'Fixture',session_ref:'synthetic-session',occurred_at:new Date(Date.now()-60000).toISOString(),kind:'progress',evidence:'observed_action',status:'in_progress',summary:'Synthetic progress',sources:['Synthetic test']};
   for(const denied of [token,writer]) {
    const result=await rpc(denied,'tools/call',{name:'append_activity',arguments:event});

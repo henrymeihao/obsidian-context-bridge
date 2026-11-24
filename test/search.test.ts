@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
-import { compileQuery, compileGlob, findLines, searchContent, indexStatus } from '../src/search.js';
+import { compileQuery, compileGlob, findLines, searchContent, searchIndexedFilenames, indexStatus } from '../src/search.js';
 import { readNote } from '../src/read.js';
 import { syncIndex, syncErrorCode } from '../src/sync.js';
 
@@ -32,6 +32,45 @@ test('content search finds Chinese text in an unrelated filename, with exact lin
   assert.equal(hit.source.citation, '【日记/随手记.md:L3】');
   assert.ok(hit.context.some(line => line.lineNumber === 4 && line.text === '另一行'));
   assert.equal(hit.indexedAt, '2026-11-11T01:00:00Z');
+});
+test('indexed filename search matches paths, Unicode case, literals and filters without reading bodies', async () => {
+  const {env, sqlite} = fixture([
+    {path:'旅行/ÉTÉ.md', text:'unrelated'}, {path:'旅行/été.md', text:'unrelated'},
+    {path:'旅行/子目录/目标.md', text:'unrelated'}, {path:'旅行旧/目标.md', text:'unrelated'},
+    {path:"旅行/' OR 1=1 --.md", text:'unrelated'}, {path:'正文.md', text:'ÉTÉ 目标'},
+  ]);
+  const before = sqlite.prepare('SELECT * FROM index_meta').all();
+  const result = await searchIndexedFilenames(env, {query:'été', path:'旅行'});
+  assert.equal(result.matches.length, 2);
+  assert.equal(result.directoriesRequested, 0);
+  assert.equal(result.lastFullScanAt, null);
+  assert.match(result.freshness, /not the live vault/);
+  assert.ok(result.matches.every(m => m.indexedAt && !('content' in m)));
+  assert.equal((await searchIndexedFilenames(env, {query:'ÉTÉ',caseSensitive:true})).matches.length, 1);
+  assert.deepEqual((await searchIndexedFilenames(env, {query:'目标',path:'旅行'})).matches.map(m=>m.path), ['旅行/子目录/目标.md']);
+  assert.equal((await searchIndexedFilenames(env, {query:'目标',path:'旅行',glob:'旅行/*.md'})).matches.length, 0);
+  assert.equal((await searchIndexedFilenames(env, {query:"' OR 1=1 --"})).matches.length, 1);
+  assert.equal((await searchIndexedFilenames(env, {query:'ÉTÉ|目标',regex:true})).matches.length, 4);
+  assert.deepEqual(sqlite.prepare('SELECT * FROM index_meta').all(), before);
+  sqlite.close();
+});
+test('indexed filename paging is bounded and resumes through empty pages without omissions', async () => {
+  const {env, sqlite} = fixture(Array.from({length:1005}, (_, i) => ({path:`notes/${String(i).padStart(4,'0')}.md`,text:'body'})));
+  const first = await searchIndexedFilenames(env, {query:'1004'});
+  assert.equal(first.matches.length, 0); assert.equal(first.scannedFiles, 1000); assert.ok(first.nextCursor);
+  const last = await searchIndexedFilenames(env, {query:'1004',cursor:first.nextCursor});
+  assert.deepEqual(last.matches.map(m=>m.path), ['notes/1004.md']); assert.equal(last.nextCursor, null);
+  const paths: string[] = []; let cursor: string | undefined;
+  do {
+    const page = await searchIndexedFilenames(env, {query:'.md',limit:100,cursor});
+    paths.push(...page.matches.map(m=>m.path)); cursor = page.nextCursor || undefined;
+  } while (cursor);
+  assert.equal(paths.length,1005); assert.equal(new Set(paths).size,1005);
+  await assert.rejects(searchIndexedFilenames(env, {query:'different',cursor:first.nextCursor}), /cursor is invalid/);
+  await assert.rejects(searchIndexedFilenames({...env,WEBDAV_ROOT:'other'}, {query:'a'}), /root does not match/);
+  await assert.rejects(searchIndexedFilenames(env, {query:'a',path:'../outside'}), /permitted vault/);
+  await assert.rejects(searchIndexedFilenames(env, {query:'a',cursor:btoa(JSON.stringify({query:'a',basePath:'',queue:[]}))}), /cursor is invalid/);
+  sqlite.close();
 });
 test('literal and case options match rg-style fixed-string searches', async () => {
   const { env } = fixture([{ path: 'a.md', text: 'Alpha\na.b\naxb\nalpha' }]);

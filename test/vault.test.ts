@@ -67,6 +67,53 @@ test('search cursors cannot escape the selected subtree', async () => {
   const cursor = btoa(JSON.stringify({ query: 'test', basePath: 'allowed', queue: [{ path: 'private', offset: 0 }] }));
   await assert.rejects(searchNotes(env, 'test', 'allowed', cursor), /cursor is invalid/);
 });
+test('live search overlaps at most four directory reads and preserves breadth-first pagination', async () => {
+  let active = 0, peak = 0, requests = 0;
+  const fake: typeof fetch = async url => {
+    requests++; active++; peak = Math.max(peak, active);
+    const folder = decodeURIComponent(new URL(String(url)).pathname).split('/').at(-2)!;
+    await new Promise(resolve => setTimeout(resolve, folder === 'a' ? 15 : 2));
+    active--;
+    const rows = folder === 'obsidian'
+      ? ['a','b','c','d','e'].map(p => ({href: href(p + '/'), directory: true}))
+      : Array.from({length: 3}, (_, i) => ({href: href(`${folder}/match-${i}.md`)}));
+    return new Response(xml(rows), {status: 207});
+  };
+  const paths: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const before = requests;
+    const page = await searchNotes(env, 'match', '', cursor, 4, fake);
+    assert.equal(page.directoriesRequested, requests - before);
+    assert.equal(active, 0);
+    paths.push(...page.matches.map(m => m.path)); cursor = page.nextCursor || undefined;
+  } while (cursor);
+  assert.equal(peak, 4);
+  assert.deepEqual(paths, ['a','b','c','d','e'].flatMap(p => Array.from({length: 3}, (_, i) => `${p}/match-${i}.md`)));
+});
+test('a large live directory is fetched only once within a search call', async () => {
+  let requests = 0;
+  const fake: typeof fetch = async () => {
+    requests++;
+    return new Response(xml(Array.from({length: 450}, (_, i) => ({href: href(`note-${i}.md`)}))), {status: 207});
+  };
+  const page = await searchNotes(env, 'absent', '', undefined, 100, fake);
+  assert.equal(page.nextCursor, null);
+  assert.equal(page.directoriesRequested, 1);
+  assert.equal(requests, 1);
+});
+test('concurrent directory failures are surfaced and all in-flight reads finish before return', async () => {
+  let active = 0;
+  const fake: typeof fetch = async url => {
+    if (String(url).endsWith('/obsidian/')) return new Response(xml(['a','b','c'].map(p=>({href:href(p+'/'),directory:true}))),{status:207});
+    active++;
+    await new Promise(resolve=>setTimeout(resolve, String(url).endsWith('/b/') ? 10 : 1));
+    active--;
+    return new Response(null,{status:503});
+  };
+  await assert.rejects(searchNotes(env,'match','',undefined,10,fake), /WebDAV read failed \(503\)/);
+  assert.equal(active,0);
+});
 test('long notes return bounded text chunks with continuation offsets', async () => {
   const fake: typeof fetch = async () => new Response('中'.repeat(50000));
   const first = await readNote(env, 'diary.md', fake);

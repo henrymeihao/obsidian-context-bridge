@@ -11,14 +11,16 @@
 | 工具 | 功能 |
 | --- | --- |
 | `list_context` | 实时浏览目录和 Markdown 文件，支持分页 |
-| `search_context` | 默认搜索正文；支持字面关键词、RE2 正则、大小写、目录、glob、前后文和游标分页；`mode=filename` 搜索实时文件名 |
+| `search_context` | 默认搜索正文；`mode=filename_indexed` 快速检索已索引的文件名/路径，支持正则、大小写、目录和 glob；`mode=filename` 保留实时、字面、不区分大小写的文件名检索 |
 | `read_context` | 实时读取正文，支持行范围或字符分页，返回路径、行号、ETag 和引用标识 |
 | `context_index_status` | 查询索引数量、更新时间及增量扫描进度 |
 | `append_diet_record` | 单独授权后，仅向根目录已有的 `饮食记录.md` 追加带日期记录 |
 | `get_activity_context` | vault 模式下，从活动数据库读取近期活动、稳定项目 ID、各任务最新明确记录及同步状态 |
 | `append_activity` | vault 模式下，单独授权后记录活动，持久排队并同步到 `Agent共享/`；生成最近动态和项目视图 |
 
-笔记原文保存在坚果云；Cloudflare D1 保存可重建的正文搜索副本，KV 保存 OAuth 状态。搜索索引由定时任务和已授权请求触发增量刷新。重要引用应使用 `read_context` 回读最新原文。引用形如 `【示例/笔记.md:L3-L5】`，不是自动生成的网页脚注。
+笔记原文保存在坚果云；Cloudflare D1 保存可重建的正文搜索副本，KV 保存 OAuth 状态。搜索索引由每分钟 Cron 增量刷新；读取请求不再启动扫描或写同步锁。部署时必须保留 `triggers.crons`。重要引用应使用 `read_context` 回读最新原文。引用形如 `【示例/笔记.md:L3-L5】`，不是自动生成的网页脚注。
+
+查找文件优先使用 `filename_indexed`，返回每条路径的 `indexedAt` 和 `lastFullScanAt`，不访问 WebDAV。它只覆盖成功索引的笔记：新文件、大文件、同步失败或已删除但尚未清理的文件可能缺失或过期，空结果不能证明实时 Vault 中不存在。需要最新目录时用 `filename` 或 `list_context`。实时文件名检索最多并发 4 个目录、每次调用最多请求 20 个目录；同一次调用不再因目录分页重复请求相同目录，跨调用仍读取实时数据。预取后尚未消费的目录保留在游标中，下一页可能重新请求。两种模式的游标不能混用；有 `nextCursor` 时须继续检索。
 
 饮食追加使用记录 ID、ETag / If-Match 并读回验证。Activity 使用不可变事件 ID、D1 持久队列及条件创建，视图使用条件更新；`vault_synced=true` 才表示该事件已回读验证。写回不支持任意路径或删除文件；生成视图会更新，原事件通过新增 correction 更正。两类写入依赖 WebDAV 正确执行条件请求。
 

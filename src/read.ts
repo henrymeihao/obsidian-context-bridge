@@ -134,13 +134,17 @@ export function parseDirectory(env: ReadEnv, path: string, xml: string) {
   return { entries, serverMayHaveMore: responses.length >= 750 };
 }
 
-export async function listDirectory(env: ReadEnv, path = '', offset = 0, limit = 100, fetcher: typeof fetch = fetch) {
+async function readDirectory(env: ReadEnv, path: string, fetcher: typeof fetch) {
   if (env.ACCESS_MODE !== 'vault') throw new Error('Note directory access is disabled.');
   const parts = safeParts(path, true);
-  if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('Note paging parameters are invalid.');
   const url = rootUrl(env) + (parts.length ? parts.map(encodeURIComponent).join('/') + '/' : '');
   const response = await request(env, url, { method: 'PROPFIND', headers: { Depth: '1', 'Content-Type': 'application/xml; charset=utf-8' }, body: '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/><d:getlastmodified/><d:getetag/></d:prop></d:propfind>' }, fetcher);
-  const result = parseDirectory(env, path, await boundedText(response, 2 * 1024 * 1024));
+  return parseDirectory(env, path, await boundedText(response, 2 * 1024 * 1024));
+}
+
+export async function listDirectory(env: ReadEnv, path = '', offset = 0, limit = 100, fetcher: typeof fetch = fetch) {
+  if (!Number.isInteger(offset) || offset < 0 || !Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error('Note paging parameters are invalid.');
+  const result = await readDirectory(env, path, fetcher);
   const entries = result.entries.slice(offset, offset + limit);
   return { path, entries, total: result.entries.length, nextOffset: offset + entries.length < result.entries.length ? offset + entries.length : null, serverMayHaveMore: result.serverMayHaveMore };
 }
@@ -166,17 +170,24 @@ export async function searchNotes(env: ReadEnv, query: string, basePath = '', cu
   let requests = 0;
   let serverMayHaveMore = false;
   while (queue.length && requests < 20 && matches.length < limit) {
-    const current = queue[0];
-    const page = await listDirectory(env, current.path, current.offset, 200, fetcher);
-    requests++;
-    serverMayHaveMore ||= page.serverMayHaveMore;
-    for (const entry of page.entries) {
-      current.offset++;
-      if (entry.type === 'directory') queue.push({ path: entry.path, offset: 0 });
-      else if (entry.path.toLocaleLowerCase().includes(query.toLocaleLowerCase())) matches.push(entry);
-      if (matches.length >= limit) break;
+    const batch = queue.slice(0, Math.min(4, 20 - requests, limit - matches.length));
+    const pages = await Promise.allSettled(batch.map(item => readDirectory(env, item.path, fetcher)));
+    requests += batch.length;
+    // Consume in queue order, regardless of network completion order. Unconsumed
+    // prefetched directories stay in the cursor and are read live on continuation.
+    for (let i = 0; i < batch.length && matches.length < limit; i++) {
+      const page = pages[i];
+      if (page.status === 'rejected') throw page.reason;
+      const current = batch[i];
+      serverMayHaveMore ||= page.value.serverMayHaveMore;
+      for (const entry of page.value.entries.slice(current.offset)) {
+        current.offset++;
+        if (entry.type === 'directory') queue.push({ path: entry.path, offset: 0 });
+        else if (entry.path.toLocaleLowerCase().includes(query.toLocaleLowerCase())) matches.push(entry);
+        if (matches.length >= limit) break;
+      }
+      if (current.offset >= page.value.entries.length) queue.shift();
     }
-    if (current.offset >= page.total) queue.shift();
   }
   const encoded = queue.length ? new TextEncoder().encode(JSON.stringify({ query, basePath, queue })) : null;
   if (encoded && encoded.length > 45000) throw new Error('Note search is too broad; choose a narrower directory.');

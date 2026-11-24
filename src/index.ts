@@ -3,7 +3,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { z } from 'zod';
 import { readNote, listDirectory, searchNotes, type ReadEnv } from './read.js';
-import { searchContent, indexStatus, type SearchEnv } from './search.js';
+import { searchContent, searchIndexedFilenames, indexStatus, type SearchEnv } from './search.js';
 import { syncIndex } from './sync.js';
 import { MEMORY_SCOPE, memorySchema, captureMemory, syncMemories } from './memory.js';
 import { recallSchema, recallMemory } from './recall.js';
@@ -123,9 +123,11 @@ export function createMcpServer(env: SearchEnv, scopes: string[] = ['context:rea
       inputSchema: { path: z.string().max(2048).default(''), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(200).default(100) }, annotations,
     }, ({ path, offset, limit }) => result(() => listDirectory(env, path, offset, limit)));
     server.registerTool('search_context', {
-      description: 'Search FULL NOTE CONTENTS by default, like rg: literal Chinese/English keywords or regex=true (RE2), caseSensitive, directory path, glob, and contextLines. Returns 1-based line numbers, matched text, context, source.citation and indexedAt in ONE call. Follow nextCursor with the same search options. mode=filename retains live filename/path lookup. Content index refreshes incrementally; verify live source with read_context for quotes.',
-      inputSchema: { query: z.string().min(1).max(500), mode: z.enum(['content', 'filename']).default('content'), path: z.string().max(2048).default(''), glob: z.string().max(500).optional(), regex: z.boolean().default(false), caseSensitive: z.boolean().default(false), contextLines: z.number().int().min(0).max(5).default(2), cursor: z.string().max(64000).optional(), limit: z.number().int().min(1).max(100).default(30) }, annotations,
-    }, ({ mode, ...options }) => result(() => mode === 'filename' ? searchNotes(env, options.query, options.path, options.cursor, options.limit) : searchContent(env, options)));
+      description: 'Search FULL NOTE CONTENTS by default, like rg: literal keywords, RE2 regex, caseSensitive, path, glob and contextLines. For fast filename/path discovery use mode=filename_indexed (no WebDAV traversal; only successfully indexed files, possibly stale). Use mode=filename for live literal case-insensitive filename/path lookup (query, path, cursor and limit only). Follow nextCursor with the same mode and options; empty indexed results do not prove live absence. Index refresh runs on Cron; verify quotes with read_context.',
+      inputSchema: { query: z.string().min(1).max(500), mode: z.enum(['content', 'filename', 'filename_indexed']).default('content'), path: z.string().max(2048).default(''), glob: z.string().max(500).optional(), regex: z.boolean().default(false), caseSensitive: z.boolean().default(false), contextLines: z.number().int().min(0).max(5).default(2), cursor: z.string().max(64000).optional(), limit: z.number().int().min(1).max(100).default(30) }, annotations,
+    }, ({ mode, ...options }) => result(() => mode === 'filename'
+      ? searchNotes(env, options.query, options.path, options.cursor, options.limit)
+      : mode === 'filename_indexed' ? searchIndexedFilenames(env, options) : searchContent(env, options)));
     server.registerTool('context_index_status', { description: 'Check full-text index note count, indexed timestamps, last completed cloud scan and pending sync work. Search freshness is different from live file freshness.', inputSchema: {}, annotations }, () => result(() => indexStatus(env)));
   }
   server.registerTool('append_diet_record', {
@@ -200,7 +202,6 @@ export default {
         if (!authContext.auth?.scope.includes('context:read') || authContext.props?.userId !== 'owner') {
           return new Response('Forbidden', { status: 403 });
         }
-        context.waitUntil(syncIndex(bindings));
         const server = createMcpServer(bindings, authContext.auth.scope);
         const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
         await server.connect(transport);
