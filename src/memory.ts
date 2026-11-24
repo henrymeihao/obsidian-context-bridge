@@ -123,6 +123,19 @@ export async function syncMemories(env:SearchEnv,fetcher:typeof fetch=fetch) {
   // Round-robin topic views so an old manual conflict cannot starve other topics.
   const key='memory_view_cursor:'+env.WEBDAV_ROOT;
   const cursor=Number(await db.prepare('SELECT value FROM index_meta WHERE key=?').bind(key).first<string>('value')||0);
-  for(let i=0;i<Math.min(3,topics.results.length);i++)try{await refreshMemoryTopic(env,topics.results[(cursor+i)%topics.results.length].topic,fetcher);}catch{/* retry next cycle */}
+  for(let i=0;i<Math.min(3,topics.results.length);i++){
+    const topic=topics.results[(cursor+i)%topics.results.length].topic;
+    let error:string|null=null;
+    try{
+      const result=await refreshMemoryTopic(env,topic,fetcher);
+      if(!result.updated)error=result.conflict?'view_conflict':'webdav_retry';
+    }catch{error='webdav_retry';}
+    if(error)await db.prepare(`INSERT INTO memory_views(vault,topic,content,sync_error) VALUES(?,?,'',?)
+      ON CONFLICT(vault,topic) DO UPDATE SET sync_error=CASE WHEN memory_views.sync_error='manual_view_conflict' THEN memory_views.sync_error ELSE excluded.sync_error END`)
+      .bind(env.WEBDAV_ROOT,topic,error).run();
+  }
   await db.prepare('INSERT OR REPLACE INTO index_meta(key,value) VALUES(?,?)').bind(key,String(topics.results.length?(cursor+3)%topics.results.length:0)).run();
+  // A healthy batch must not clear failures in topics awaiting their next turn.
+  const unresolved=await db.prepare('SELECT 1 FROM memory_views WHERE vault=? AND sync_error IS NOT NULL LIMIT 1').bind(env.WEBDAV_ROOT).first();
+  if(unresolved)throw new Error('Memory topic views need retry or conflict review.');
 }

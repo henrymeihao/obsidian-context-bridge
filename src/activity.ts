@@ -174,12 +174,21 @@ export async function refreshActivityViews(env:SearchEnv,fetcher:typeof fetch=fe
 }
 export async function syncActivities(env:SearchEnv,fetcher:typeof fetch=fetch) {
   const db=database(env);
-  const pending=await db.prepare('SELECT * FROM shared_activity WHERE vault=? AND vault_synced=0 ORDER BY recorded_at LIMIT 5').bind(env.WEBDAV_ROOT).all<Row>();
+  const cursorKey='activity_sync_cursor:'+env.WEBDAV_ROOT;
+  const cursorId=await db.prepare('SELECT value FROM index_meta WHERE key=?').bind(cursorKey).first<string>('value');
+  const cursor=cursorId?await db.prepare('SELECT recorded_at,event_id FROM shared_activity WHERE vault=? AND event_id=?').bind(env.WEBDAV_ROOT,cursorId).first<Pick<Row,'recorded_at'|'event_id'>>():null;
+  const pending=await db.prepare(`SELECT * FROM shared_activity WHERE vault=? AND vault_synced=0
+    ORDER BY (recorded_at>? OR (recorded_at=? AND event_id>?)) DESC,recorded_at,event_id LIMIT 5`)
+    .bind(env.WEBDAV_ROOT,cursor?.recorded_at||'',cursor?.recorded_at||'',cursor?.event_id||'').all<Row>();
   const count=await db.prepare('SELECT COUNT(*) AS n FROM shared_activity WHERE vault=?').bind(env.WEBDAV_ROOT).first<{n:number}>();
   if(!count?.n)return;
   if(pending.results.length)await ensureDirectories(env,fetcher);
-  let failed=false;
-  for(const row of pending.results)try{await mirrorRow(env,row,fetcher);}catch{failed=true;}
+  for(const row of pending.results){
+    // Persist the attempted position first so interruption cannot pin the queue head.
+    await db.prepare('INSERT OR REPLACE INTO index_meta(key,value) VALUES(?,?)').bind(cursorKey,row.event_id).run();
+    try{await mirrorRow(env,row,fetcher);}catch{/* Keep the immutable event queued for its next turn. */}
+  }
   await refreshActivityViews(env,fetcher);
-  if(failed)throw new Error('Activity some queued records need retry or conflict review.');
+  const remaining=await db.prepare('SELECT 1 FROM shared_activity WHERE vault=? AND vault_synced=0 LIMIT 1').bind(env.WEBDAV_ROOT).first();
+  if(remaining)throw new Error('Activity some queued records need retry or conflict review.');
 }
