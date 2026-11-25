@@ -1,0 +1,23 @@
+{
+  "name": "personal-context-bridge",
+  "version": "0.1.0+codex.20261125170108",
+  "description": "Personal Context Bridge: the existing sync-shared-context Skill connected to the registered Obsidian Context Bridge MCP App.",
+  "author": {
+    "name": "Henry May"
+  },
+  "skills": "./skills/",
+  "apps": "./.app.json",
+  "interface": {
+    "displayName": "Personal Context Bridge",
+    "shortDescription": "Recall and record your Obsidian context.",
+    "longDescription": "Loads the existing sync-shared-context Skill and connects it to the registered Obsidian Context Bridge MCP App. The standalone Skill remains available as a comparison path.",
+    "developerName": "Henry May",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": [
+      "Recall what I decided about this project.",
+      "Record this verified project milestone.",
+      "Search my Obsidian context for this topic."
+    ]
+  }
+}

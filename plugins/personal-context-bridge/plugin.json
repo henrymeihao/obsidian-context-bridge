@@ -1,0 +1,26 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "personal-context-bridge",
+  "version": "0.1.0",
+  "description": "Personal Context Bridge: sync-shared-context Skill plus the registered Obsidian Context Bridge MCP App.",
+  "keywords": ["Obsidian", "memory", "context", "MCP"],
+  "extensions": {
+    "com.openai": {
+      "apps": "./.app.json",
+      "onboardingSkill": "./skills/sync-shared-context/SKILL.md",
+      "interface": {
+        "displayName": "Personal Context Bridge",
+        "shortDescription": "Recall and record your Obsidian context.",
+        "longDescription": "Loads the existing sync-shared-context Skill and connects it to the registered Obsidian Context Bridge MCP App.",
+        "developerName": "Henry May",
+        "category": "Productivity",
+        "capabilities": ["Read", "Write"],
+        "defaultPrompt": [
+          "Recall what I decided about this project.",
+          "Record this verified project milestone.",
+          "Search my Obsidian context for this topic."
+        ]
+      }
+    }
+  }
+}
