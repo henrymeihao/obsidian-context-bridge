@@ -28,6 +28,52 @@ test('travel plan is not a real experience; actual experience has separate evide
   assert.equal(r.matches.find(h=>h.type==='experience')!.stance,'confirmed');
 });
 
+test('progressive recall preserves an unsettled episode and attributable context without inflating default recall',async()=>{
+  const f=setup();
+  const context='背景：虚构用户看到同事的项目，表示有些落后感。\n转折：用户说“这也可以是学习机会”。\n当前：仍在比较参与共建与独立负责模块，尚未决定。\n未决：需要核实时间投入与责任范围。';
+  const episode={...base,memory_id:'memory_episode_01',topic:'career-learning',summary:'考虑如何参与团队项目，尚未决定',context,source_refs:['fixture:conversation:turns-1-4']};
+  await captureMemory(f.env,episode,scopes,f.fetcher);
+  const compact=await recallMemory(f.env,{query:'责任范围',types:['exploration']});
+  assert.equal(compact.detail,'summary');
+  assert.equal(compact.matches[0].id,episode.memory_id);
+  assert.equal('context' in compact.matches[0],false);
+  assert.equal('context_source' in compact.matches[0],false);
+  const expanded=await recallMemory(f.env,{query:'责任范围',types:['exploration'],detail:'context'});
+  assert.deepEqual(expanded.matches.map(h=>h.id),compact.matches.map(h=>h.id));
+  const hit=expanded.matches[0];
+  assert.equal(hit.context,context);
+  assert.equal(hit.stance,'considering');
+  assert.equal(hit.evidence,'user_statement');
+  assert.deepEqual(hit.source_refs,episode.source_refs);
+  const source=hit.context_source!;
+  assert.equal(f.files.get(source.path)!.text.split('\n').slice(source.startLine-1,source.endLine).join('\n'),context);
+  assert.equal(f.files.get(hit.source.path)!.text.split('\n')[hit.source.startLine-1],episode.summary);
+  // A materially different situation must survive server-side content deduplication.
+  const second=await captureMemory(f.env,{...episode,memory_id:'memory_episode_02',context:'用户后来了解了新的责任范围，但仍未决定。'},scopes,f.fetcher);
+  assert.equal(second.deduplicated,false);
+  assert.equal((await recallMemory(f.env,{query:'考虑如何参与团队项目',types:['exploration'],mode:'timeline',detail:'context'})).matches.length,2);
+});
+
+test('expanded recall does not manufacture missing context or claim pending source files exist',async()=>{
+  const f=setup();f.fail=true;
+  const saved=await captureMemory(f.env,{...base,context:''},scopes,f.fetcher);
+  assert.equal(saved.vault_synced,false);
+  const hit=(await recallMemory(f.env,{query:'职业转型',detail:'context'})).matches[0];
+  assert.equal(hit.context,'');
+  assert.equal(hit.context_source,undefined);
+  assert.equal(hit.vault_synced,false);
+  assert.equal(f.files.has(hit.source.path),false);
+});
+
+test('context citations follow live-read newline normalization and skip heading-like summary text',async()=>{
+  const f=setup(),context='第一行背景\r\n第二行理由\r第三行未决';
+  await captureMemory(f.env,{...base,summary:'## Context',context},scopes,f.fetcher);
+  const hit=(await recallMemory(f.env,{query:'未决',detail:'context'})).matches[0],source=hit.context_source!;
+  assert.equal(hit.context,context);
+  const normalized=f.files.get(source.path)!.text.replace(/\r\n?/g,'\n').split('\n');
+  assert.equal(normalized.slice(source.startLine-1,source.endLine).join('\n'),context.replace(/\r\n?/g,'\n'));
+});
+
 test('AI understanding revisions and changed explicit decisions retain temporal history',async()=>{
   const f=setup();
   const first={...base,memory_id:'memory_ai_first',topic:'ai-viewpoint',stance:'confirmed',summary:'AI 适合直接代替所有判断'};
