@@ -9,7 +9,7 @@ const line = (max:number) => z.string().trim().min(1).max(max).refine(s=>!/[\x00
 export const memoryTypes = z.enum(['identity','preference','decision','experience','exploration','working_state']);
 export const memorySchema = z.object({
   memory_id:id, topic:z.string().regex(/^[a-z0-9][a-z0-9_-]{1,79}$/), type:memoryTypes,
-  summary:line(1000), context:z.string().trim().max(4000).default(''),
+  summary:line(1000).describe('Compact personal conclusion or current exploration state. Explicitly retain uncertainty; do not turn consideration into a decision.'), context:z.string().trim().max(4000).default('').describe('Saved situation: relevant background, user-expressed feelings/reasons, viewpoint changes, current conclusion and unresolved questions. Attribute speakers; preserve brief authorized exact quotes and real source references where useful. Omit unknowns instead of inventing them; no full chat transcripts.'),
   agent:line(60), session_ref:line(1000), source_refs:z.array(line(1000)).min(1).max(12),
   evidence:z.enum(['user_statement','observed_action','assistant_proposal','inference']),
   stance:z.enum(['confirmed','considering','proposed','tentative']),

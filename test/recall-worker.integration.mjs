@@ -25,11 +25,17 @@ test('workerd/D1 executes bilingual candidate SQL and reads verified memory with
   await db.exec(readFileSync(new URL('../schema.sql',import.meta.url),'utf8').split('\n').filter(l=>!l.trimStart().startsWith('--')).join(' '));
   await db.prepare("INSERT INTO index_meta VALUES('root','fixture')").run();
   const invoke=async body=>{const r=await mf.dispatchFetch('https://fixture.invalid/',{method:'POST',body:JSON.stringify(body)});assert.equal(r.status,200);return r.json();};
-  const captured=await invoke({capture:{memory_id:'fixture_worker_connect',topic:'client-verification',type:'working_state',summary:'Phase 3 MCP connectivity test only.',agent:'fixture',session_ref:'fixture',source_refs:['fixture:action'],evidence:'observed_action',stance:'confirmed',occurred_at:'2026-01-01T00:00:00Z',valid_from:'2026-01-01T00:00:00Z',authorization_ref:'fixture:authorized'}});
+  const context='Background: isolated client verification.\nOpen question: can another client read the evidence?';
+  const captured=await invoke({capture:{memory_id:'fixture_worker_connect',topic:'client-verification',type:'working_state',summary:'Phase 3 MCP connectivity test only.',context,agent:'fixture',session_ref:'fixture',source_refs:['fixture:action'],evidence:'observed_action',stance:'confirmed',occurred_at:'2026-01-01T00:00:00Z',valid_from:'2026-01-01T00:00:00Z',authorization_ref:'fixture:authorized'}});
   assert.equal(captured.vault_synced,true);
   for(const query of ['第三阶段客户端联通性测试记忆','Phase 3 MCP connectivity test','第三阶段 MCP connectivity 验证']){
    const r=await invoke({recall:{query}});assert.equal(r.matches[0]?.id,'fixture_worker_connect');assert.equal(r.matches[0].source.startLine,19);
+   assert.equal('context' in r.matches[0],false);
   }
+  const expanded=await invoke({recall:{query:'connectivity',detail:'context'}});
+  const hit=expanded.matches[0];assert.equal(hit.context,context);
+  const rendered=[...files.values()].find(text=>text.includes('# client-verification\n'));
+  assert.ok(rendered);assert.equal(rendered.split('\n').slice(hit.context_source.startLine-1,hit.context_source.endLine).join('\n'),context);
  }finally{await mf.dispose();}
 });
 

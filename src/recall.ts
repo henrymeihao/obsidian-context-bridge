@@ -5,7 +5,7 @@ import { indexStatus, sourceReference, type SearchEnv } from './search.js';
 
 export const recallSchema=z.object({query:z.string().trim().min(1).max(500),topics:z.array(z.string().regex(/^[a-z0-9][a-z0-9_-]{1,79}$/)).max(12).optional(),types:z.array(memoryTypes).max(6).optional(),
   from:z.string().datetime({offset:true}).optional(),to:z.string().datetime({offset:true}).optional(),
-  mode:z.enum(['current','timeline']).default('current'),as_of:z.string().datetime({offset:true}).optional(),limit:z.number().int().min(1).max(50).default(10)}).strict()
+  mode:z.enum(['current','timeline']).default('current'),detail:z.enum(['summary','context']).default('summary').describe('summary: compact conclusions; context: also return saved personal-memory situations, reasoning and unresolved questions. Original evidence still requires reading source_refs when accessible.'),as_of:z.string().datetime({offset:true}).optional(),limit:z.number().int().min(1).max(50).default(10)}).strict()
   .refine(v=>!v.from||!v.to||Date.parse(v.from)<=Date.parse(v.to),'Invalid time range');
 export type RecallOptions=z.input<typeof recallSchema>;
 export {queryTerms,relevance} from './recall-query.js';
@@ -52,16 +52,18 @@ export async function recallMemory(env:SearchEnv,raw:RecallOptions,observe?:(eve
     ) SELECT path,modified,indexed_at,preview,json_extract(evidence,'$.matched') AS matched,json_extract(evidence,'$.score') AS lexical
     FROM candidates WHERE lexical>0 ORDER BY lexical DESC,path LIMIT ${cap}`).bind(JSON.stringify(tokens),from,to,JSON.stringify(o.topics||[]),JSON.stringify(o.topics||[])).all<{path:string;preview:string;matched:string;modified:string|null;indexed_at:string}>();
   mark('notes_sql',notes.results.length);
-  type Hit={kind:string;id:string;topic:string;type:string;summary:string;score:number;source:ReturnType<typeof sourceReference>;occurred_at:string|null;recorded_at:string|null;evidence:string;stance:string;vault_synced:boolean|null;indexed_at:string|null;conflict:boolean;revision?:number;source_refs?:string[]};
+  type Hit={kind:string;id:string;topic:string;type:string;summary:string;score:number;source:ReturnType<typeof sourceReference>;occurred_at:string|null;recorded_at:string|null;evidence:string;stance:string;vault_synced:boolean|null;indexed_at:string|null;conflict:boolean;revision?:number;source_refs?:string[];context?:string;context_source?:ReturnType<typeof sourceReference>};
   const hits:Hit[]=[];
   const heads=memory.results.length?await db.prepare(`SELECT m.topic,m.type,COUNT(*) AS n FROM personal_memory m WHERE m.vault=? AND ${memoryCurrent} GROUP BY m.topic,m.type`).bind(env.WEBDAV_ROOT,at,at,at).all<{topic:string;type:string;n:number}>():{results:[]};
   mark('heads_sql',heads.results.length);
   for(const r of memory.results.slice(0,candidateLimit)){
     const v=publicMemory(r),base=scoreText(v.summary+' '+v.context,v.topic);if(!base)continue;
     const score=base+scoreText(v.summary,v.topic);
-    const lines=renderMemory(r).split('\n'),line=lines.indexOf('## Summary')+3;
+    const lines=renderMemory(r).replace(/\r\n?/g,'\n').split('\n'),line=lines.indexOf('## Summary')+3;
     const conflicting=heads.results.find(h=>h.topic===v.topic&&h.type===v.type);
-    hits.push({kind:'memory',id:v.memory_id,topic:v.topic,type:v.type,summary:v.summary,score,source:sourceReference(v.path,line,line),occurred_at:v.occurred_at,recorded_at:v.recorded_at,evidence:v.evidence,stance:v.stance,vault_synced:v.vault_synced,indexed_at:null,conflict:(conflicting?.n||0)>1,revision:v.revision,source_refs:v.source_refs});
+    const contextLine=lines.indexOf('## Context',line)+3;
+    hits.push({kind:'memory',id:v.memory_id,topic:v.topic,type:v.type,summary:v.summary,score,source:sourceReference(v.path,line,line),occurred_at:v.occurred_at,recorded_at:v.recorded_at,evidence:v.evidence,stance:v.stance,vault_synced:v.vault_synced,indexed_at:null,conflict:(conflicting?.n||0)>1,revision:v.revision,source_refs:v.source_refs,
+      ...(o.detail==='context'?{context:v.context,...(v.context?{context_source:sourceReference(v.path,contextLine,contextLine+v.context.replace(/\r\n?/g,'\n').split('\n').length-1)}:{})}:{})});
   }
   for(const r of activity.results.slice(0,candidateLimit)){const v=JSON.parse(r.payload),title=r.project+' '+v.task_name+' '+v.project_name,base=scoreText(v.summary+' '+v.details,title);if(!base)continue;
     const score=base+scoreText(v.summary,title);
@@ -80,7 +82,9 @@ export async function recallMemory(env:SearchEnv,raw:RecallOptions,observe?:(eve
   mark('score_candidates',hits.length);
   hits.sort((a,b)=>b.score-a.score||a.id.localeCompare(b.id));
   const seen=new Set<string>();
-  const unique=hits.filter(h=>{const key=JSON.stringify([h.kind,h.topic,h.summary]);if(seen.has(key))return false;seen.add(key);return true;});
+  // Capture already deduplicates identical personal evidence. Distinct immutable memories
+  // may share a summary while retaining different situations or revisions.
+  const unique=hits.filter(h=>{const key=JSON.stringify(h.kind==='memory'?[h.kind,h.id]:[h.kind,h.topic,h.summary]);if(seen.has(key))return false;seen.add(key);return true;});
   mark('sort_dedup',unique.length);
   // Fetch a single attributable line only for emitted notes. No whole-note transfer or per-line reranking.
   const selected=unique.slice(0,o.limit),paths=selected.filter(h=>h.kind==='note').map(h=>h.id);
@@ -108,7 +112,7 @@ export async function recallMemory(env:SearchEnv,raw:RecallOptions,observe?:(eve
   const viewConflicts=await db.prepare("SELECT topic,sync_error FROM memory_views WHERE vault=? AND sync_error IS NOT NULL AND (?='[]' OR topic IN (SELECT value FROM json_each(?))) LIMIT 20").bind(env.WEBDAV_ROOT,JSON.stringify(o.topics||[]),JSON.stringify(o.topics||[])).all();
   mark('view_conflicts_sql',viewConflicts.results.length);
   const stale=!freshness.lastFullScanAt||Date.now()-Date.parse(freshness.lastFullScanAt)>15*60000||!freshness.sync?.complete;
-  return {query:o.query,mode:o.mode,as_of:at,matches:selected,insufficient_evidence:selected.length===0,
+  return {query:o.query,mode:o.mode,detail:o.detail,as_of:at,matches:selected,insufficient_evidence:selected.length===0,
     conflicts:unique.some(h=>h.conflict),view_conflicts:viewConflicts.results,candidate_truncated:sourceChanged||allTokens.length>tokens.length||[memory,activity,notes].some(s=>s.results.length===cap),
     freshness:{notes: freshness,notes_stale:stale,notes_root_matches:root===env.WEBDAV_ROOT,memory_activity:'Live D1 submitted records; independent of note index. Pending vault files are not live citations.'},
     coverage:'Only submitted memories/activities and indexed permitted Markdown. Unseen chats are not collected. No match is insufficient evidence, not proof of no history. Types filters select personal-memory types; topics filter stable Memory topics, Activity projects and note text/path. Notes are unclassified evidence, never automatically current facts.',

@@ -1,5 +1,27 @@
 # V3：个人与 Agent 共享的长期记忆
 
+## 情景保真度升级（2026-11-26）
+
+使用现有字段实现分层记忆，不迁移数据库、不修改既有不可变事件：
+
+- L2 `summary`：简短结论或当前探索状态；尚未决定须明确保留。
+- L1 `context`：保存相关背景、用户表达的感受与理由、观点变化、当前立场和未决问题，现有上限 4000 字符。没有证据的过程不能补写。
+- L0 `source_refs` / `session_ref`：实际来源及必要的已授权短摘录。链接不保证未来可访问，不能将事件摘要冒充原始会话。
+
+`recall_memory` 新增可选 `detail="summary"|"context"`，默认 summary 保持紧凑；context 模式对个人 Memory 返回完整已存 `context`，非空时另有 `context_source` 行号。主 `source` 仍指向摘要，排序、类型过滤和有效性规则不变。Activity/普通笔记保持原有返回粒度。未同步事件的行号只是预期镜像位置，只有 `vault_synced=true` 才能称为已落盘；空上下文不提供 context_source。默认模式仍会用 context 检索，但不回传全文。
+
+```json
+{"query":"当时为什么考虑换方向","topics":["career-transition"],"detail":"context","limit":3}
+```
+
+召回去重对个人 Memory 使用不可变 ID，保留摘要相同但情景或修订不同的事件；存储层原有内容去重不变。无需部署即可通过旧接口的 `read_context(hit.source.path)` 深入读取已保存事件；旧服务不接受 detail 参数时，Skill 使用此路径降级。旧记录缺失的情景不会自动恢复。
+
+Skill 捕获规则同时覆盖有具体个人矛盾、选项理由、认知转折或可接续未决问题的探索，即便尚未形成最终结论，也可按 `exploration` / `considering` 保存。裸问题、通用头脑风暴、无变化重复不写。既有授权、去重、证据归属、敏感内容边界和不可变修订规则保留。同一结论出现新的重要情景时，应比较完整 context，不能只看摘要就丢弃。
+
+历史回填须逐个读取指定原始来源，保留原发生时间与本次捕获时间的区别，不把旧记录直接当作当前偏好。本次不自动批量导入私人日记或聊天，不把转述内容伪装成已读原始会话。
+
+本节描述代码与 Skill 契约；本地验证、生产部署、真实客户端自动触发分别验收，不能由前者推断后者。真实使用需抽查捕获覆盖、情景完整性、证据可追溯与不确定性保留；记忆条数不是捕获率的分母。
+
 本版是在现有 Activity 系统旁新增的最小版本。Activity 接口和数据保留；没有历史聊天采集器，没有生产部署、生产迁移或真实笔记批量改写。公开测试仅使用虚构数据。记忆形成依赖 Agent 实际调用，不是后台监听所有聊天。
 
 ## 索引审计与修复
@@ -80,7 +102,7 @@ Activity/Memory 读 D1 即时记录，不依赖全文索引。索引停滞不等
 
 ### recall_memory
 
-必填 `query`（1–500）；可选 `topics`（≤12）、`types`（≤6）、`from`/`to`（ISO，按发生时间过滤）、`limit`（1–50，默认 10）、`mode=current|timeline`（默认 current）、`as_of`（当前有效状态的参考时间，默认现在）。
+必填 `query`（1–500）；可选 `topics`（≤12）、`types`（≤6）、`from`/`to`（ISO，按发生时间过滤）、`limit`（1–50，默认 10）、`mode=current|timeline`（默认 current）、`detail=summary|context`（默认 summary）、`as_of`（当前有效状态的参考时间，默认现在）。
 
 ```json
 {"query":"我之前想换职业的讨论","topics":["career-transition"],"limit":5}
